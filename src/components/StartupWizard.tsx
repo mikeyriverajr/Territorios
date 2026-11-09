@@ -731,7 +731,7 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                           }
                           className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
                         >
-                          {territories.map((t) => (
+                          {territories.map((t: Territory) => (
                             <option key={t.id} value={t.id}>
                               {t.name}
                             </option>
