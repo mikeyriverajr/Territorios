@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Mapa 1 - Territorios Individuales</name>
+    <description>Delimitación de los territorios individuales de la congregación</description>
+    <Placemark>
+      <name>Territorio 1</name>
+      <description>Zona Urbana Centro - 4 Manzanas (1A a 1D)</description>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -58.4455,-34.6110,0
+              -58.4405,-34.6110,0
+              -58.4405,-34.6150,0
+              -58.4455,-34.6150,0
+              -58.4455,-34.6110,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>Territorio 2</name>
+      <description>Zona Urbana Norte - Manzanas 2A a 2C</description>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -58.4455,-34.6072,0
+              -58.4405,-34.6072,0
+              -58.4405,-34.6108,0
+              -58.4455,-34.6108,0
+              -58.4455,-34.6072,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>Territorio 3 (Rural)</name>
+      <description>Sector Rural Camino Viejo - Casas marcadas individualmente</description>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -58.4525,-34.6085,0
+              -58.4460,-34.6085,0
+              -58.4460,-34.6145,0
+              -58.4525,-34.6145,0
+              -58.4525,-34.6085,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Ajustes para etiquetas de Leaflet sin bordes blancos por defecto */
+.custom-block-label,
+.custom-house-pin,
+.custom-gps-dot {
+  background: transparent !important;
+  border: none !important;
+}
+
+.leaflet-container {
+  font-family: inherit;
+}

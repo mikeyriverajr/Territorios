@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Mapa 2 - Manzanas y Casas Rurales</name>
+    <Folder>
+      <name>Manzanas Territorio 1</name>
+      <Placemark>
+        <name>1A</name>
+        <description>Manzana 1A - Av. Rivadavia y Cachimayo</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                -58.4452,-34.6112,0
+                -58.4431,-34.6112,0
+                -58.4431,-34.6129,0
+                -58.4452,-34.6129,0
+                -58.4452,-34.6112,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+      <Placemark>
+        <name>1B</name>
+        <description>Manzana 1B - Cachimayo y Nicolás Videla</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                -58.4429,-34.6112,0
+                -58.4408,-34.6112,0
+                -58.4408,-34.6129,0
+                -58.4429,-34.6129,0
+                -58.4429,-34.6112,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+      <Placemark>
+        <name>1C</name>
+        <description>Manzana 1C - Valle y Cachimayo</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                -58.4452,-34.6131,0
+                -58.4431,-34.6131,0
+                -58.4431,-34.6148,0
+                -58.4452,-34.6148,0
+                -58.4452,-34.6131,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+      <Placemark>
+        <name>1D</name>
+        <description>Manzana 1D - José Bonifacio y Riglos</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                -58.4429,-34.6131,0
+                -58.4408,-34.6131,0
+                -58.4408,-34.6148,0
+                -58.4429,-34.6148,0
+                -58.4429,-34.6131,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Manzanas Territorio 2</name>
+      <Placemark>
+        <name>2A</name>
+        <description>Manzana 2A</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                -58.4452,-34.6075,0
+                -58.4431,-34.6075,0
+                -58.4431,-34.6091,0
+                -58.4452,-34.6091,0
+                -58.4452,-34.6075,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+      <Placemark>
+        <name>2B</name>
+        <description>Manzana 2B</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                -58.4429,-34.6075,0
+                -58.4408,-34.6075,0
+                -58.4408,-34.6091,0
+                -58.4429,-34.6091,0
+                -58.4429,-34.6075,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+      <Placemark>
+        <name>2C</name>
+        <description>Manzana 2C</description>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                -58.4452,-34.6093,0
+                -58.4408,-34.6093,0
+                -58.4408,-34.6106,0
+                -58.4452,-34.6106,0
+                -58.4452,-34.6093,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>
+    </Folder>
+    <Folder>
+      <name>Casas Rurales Territorio 3</name>
+      <Placemark>
+        <name>Casa Rural 1 - Tranquera Roja</name>
+        <description>Frente al molino viejo</description>
+        <Point>
+          <coordinates>-58.4508,-34.6098,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>Casa Rural 2 - Quinta Los Pinos</name>
+        <description>Camino de tierra a 200m del cruce</description>
+        <Point>
+          <coordinates>-58.4488,-34.6105,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>Casa Rural 3 - Galpón Azul</name>
+        <description>Tocar bocina o campana en la entrada</description>
+        <Point>
+          <coordinates>-58.4512,-34.6122,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>Casa Rural 4 - Familia al fondo del arroyo</name>
+        <description>Casa techo verde de dos aguas</description>
+        <Point>
+          <coordinates>-58.4478,-34.6132,0</coordinates>
+        </Point>
+      </Placemark>
+      <Placemark>
+        <name>Casa Rural 5 - Esquina Ruta Vieja</name>
+        <description>Portón de madera blanco</description>
+        <Point>
+          <coordinates>-58.4496,-34.6138,0</coordinates>
+        </Point>
+      </Placemark>
+    </Folder>
+  </Document>
+</kml>
