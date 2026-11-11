@@ -16,6 +16,7 @@ import {
 import {
   appendSyncAction,
   fetchCloudDatabase,
+  generateHouseShortCode,
   getBlankLiveDatabase,
   loadDatabase,
   markWholeTerritoryCompleted,
@@ -124,6 +125,13 @@ export const App: React.FC = () => {
       recordedByRole === 'publicador' ? 'no_en_casa' : pointData.category;
     const isPermanent = safeCategory === 'no_visitar';
 
+    const { seqNumber, shortCode } = generateHouseShortCode(
+      db,
+      pointData.territoryId,
+      pointData.blockCode,
+      safeCategory
+    );
+
     const newPoint: HousePoint = {
       id: `hp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       territoryId: pointData.territoryId,
@@ -133,8 +141,10 @@ export const App: React.FC = () => {
       lng: pointData.lng,
       category: safeCategory,
       status: isPermanent ? 'permanente' : 'no_en_casa',
-      label: pointData.label,
+      label: pointData.label?.trim() ? pointData.label : `#${shortCode}`,
       notes: pointData.notes,
+      seqNumber,
+      shortCode,
       recordedByRole,
       createdAt: now,
       updatedAt: now,
@@ -530,6 +540,73 @@ export const App: React.FC = () => {
                 saveDatabase({
                   ...db,
                   schedule: db.schedule.filter((s) => s.id !== slotId),
+                })
+              );
+            }}
+            onUpdateScheduleSlot={(updatedSlot) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  schedule: db.schedule.map((s) =>
+                    s.id === updatedSlot.id ? updatedSlot : s
+                  ),
+                })
+              );
+            }}
+            onSaveTerritory={(updatedTerr) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  territories: db.territories.map((t) =>
+                    t.id === updatedTerr.id ? updatedTerr : t
+                  ),
+                })
+              );
+            }}
+            onCreateTerritory={(newTerr) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  territories: [...db.territories, newTerr],
+                })
+              );
+            }}
+            onDeleteTerritory={(territoryId) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  territories: db.territories.filter((t) => t.id !== territoryId),
+                  blocks: db.blocks.filter((b) => b.territoryId !== territoryId),
+                  housePoints: db.housePoints.filter(
+                    (hp) => hp.territoryId !== territoryId
+                  ),
+                })
+              );
+            }}
+            onSaveBlock={(updatedBlock) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  blocks: db.blocks.map((b) =>
+                    b.id === updatedBlock.id ? updatedBlock : b
+                  ),
+                })
+              );
+            }}
+            onCreateBlock={(newBlock) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  blocks: [...db.blocks, newBlock],
+                })
+              );
+            }}
+            onDeleteBlock={(blockId) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  blocks: db.blocks.filter((b) => b.id !== blockId),
+                  housePoints: db.housePoints.filter((hp) => hp.blockId !== blockId),
                 })
               );
             }}

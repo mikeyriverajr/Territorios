@@ -261,6 +261,8 @@ export function getDemoDatabase(): AppDatabase {
       territoryId: 'terr-1',
       blockId: 'block-1A',
       blockCode: '1A',
+      seqNumber: 1,
+      shortCode: '1A-1',
       lat: -34.6118,
       lng: -58.4445,
       category: 'no_en_casa',
@@ -276,6 +278,8 @@ export function getDemoDatabase(): AppDatabase {
       territoryId: 'terr-1',
       blockId: 'block-1B',
       blockCode: '1B',
+      seqNumber: 1,
+      shortCode: '1B-NV1',
       lat: -34.6116,
       lng: -58.4418,
       category: 'no_visitar',
@@ -289,6 +293,8 @@ export function getDemoDatabase(): AppDatabase {
     {
       id: 'hp-rural-1',
       territoryId: 'terr-3',
+      seqNumber: 1,
+      shortCode: 'T3-1',
       lat: -34.6098,
       lng: -58.4508,
       category: 'casa_rural',
@@ -301,6 +307,8 @@ export function getDemoDatabase(): AppDatabase {
     {
       id: 'hp-rural-2',
       territoryId: 'terr-3',
+      seqNumber: 2,
+      shortCode: 'T3-2',
       lat: -34.6105,
       lng: -58.4488,
       category: 'casa_rural',
@@ -596,6 +604,49 @@ export function findBlockForCoordinates(
 ): Block | undefined {
   const terrBlocks = blocks.filter((b) => b.territoryId === territoryId);
   return terrBlocks.find((b) => isPointInPolygon(point, b.polygon));
+}
+
+/**
+ * Genera el identificador único por Manzana + Número correlativo (ej. "1A-1", "1A-2", o "T3-1" en rural)
+ */
+export function generateHouseShortCode(
+  db: AppDatabase,
+  territoryId: string,
+  blockCode?: string,
+  category?: string
+): { seqNumber: number; shortCode: string } {
+  const territory = db.territories.find((t) => t.id === territoryId);
+  const prefix = blockCode
+    ? blockCode.toUpperCase()
+    : `T${territory?.number ?? 1}`;
+
+  if (category === 'no_visitar') {
+    const existingNV = db.housePoints.filter(
+      (p) =>
+        p.territoryId === territoryId &&
+        (blockCode ? p.blockCode === blockCode : true) &&
+        p.category === 'no_visitar'
+    );
+    const nextNum = existingNV.length + 1;
+    return { seqNumber: nextNum, shortCode: `${prefix}-NV${nextNum}` };
+  }
+
+  const sameGroupPoints = db.housePoints.filter(
+    (p) =>
+      p.territoryId === territoryId &&
+      (blockCode ? p.blockCode === blockCode : !p.blockCode) &&
+      p.category !== 'no_visitar'
+  );
+
+  const maxSeq = sameGroupPoints.reduce(
+    (max, p, idx) => Math.max(max, p.seqNumber ?? idx + 1),
+    0
+  );
+  const nextSeq = maxSeq + 1;
+  return {
+    seqNumber: nextSeq,
+    shortCode: `${prefix}-${nextSeq}`,
+  };
 }
 
 export function loadCloudConfig(): CloudSyncConfig {

@@ -6,9 +6,9 @@ import {
   Crosshair,
   ExternalLink,
   Home,
+  Layers,
   MapPin,
   Navigation,
-  PlusCircle,
   X,
 } from 'lucide-react';
 import {
@@ -69,6 +69,9 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     assignedTerritories[0]?.id || territories[0]?.id || 'terr-1'
   );
 
+  // Vista satelital por defecto
+  const [mapStyle, setMapStyle] = useState<'satelite' | 'calles'>('satelite');
+
   const activeTerritory = useMemo(
     () =>
       assignedTerritories.find((t) => t.id === activeTerritoryId) ||
@@ -100,12 +103,13 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     [territoryPoints]
   );
 
-  // Estados para anotar un "No en casa" frente a la puerta
+  // Borrador al tocar el mapa (o usar GPS)
   const [formDraft, setFormDraft] = useState<{
     lat: number;
     lng: number;
     blockId?: string;
     blockCode?: string;
+    previewCode: string;
     houseNumber: string;
     chips: string[];
     notes: string;
@@ -114,10 +118,10 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
-  const [isPickingOnMap, setIsPickingOnMap] = useState<boolean>(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
 
   const selectedPoint = useMemo(
@@ -125,7 +129,40 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     [territoryPoints, selectedPointId]
   );
 
-  // Inicializar el mapa pequeño inferior
+  // Calcular código único previsto (ej. 1A-1, 1A-2)
+  const computeNextShortCode = (blockCode?: string) => {
+    const prefix = blockCode || `T${activeTerritory?.number ?? 1}`;
+    const sameGroup = territoryPoints.filter(
+      (p) =>
+        (blockCode ? p.blockCode === blockCode : !p.blockCode) &&
+        p.category !== 'no_visitar'
+    );
+    const maxSeq = sameGroup.reduce(
+      (max, p, idx) => Math.max(max, p.seqNumber ?? idx + 1),
+      0
+    );
+    return `${prefix}-${maxSeq + 1}`;
+  };
+
+  const openDraftAtCoordinates = (coords: LatLngTuple, explicitBlock?: Block) => {
+    if (!activeTerritory) return;
+    const matchedBlock =
+      explicitBlock ||
+      findBlockForCoordinates(blocks, activeTerritory.id, coords);
+    const bCode = matchedBlock?.code;
+    setFormDraft({
+      lat: Number(coords[0].toFixed(6)),
+      lng: Number(coords[1].toFixed(6)),
+      blockId: matchedBlock?.id,
+      blockCode: bCode,
+      previewCode: computeNextShortCode(bCode),
+      houseNumber: '',
+      chips: [],
+      notes: '',
+    });
+  };
+
+  // Inicializar Mapa Grande con Satélite por defecto
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -135,16 +172,20 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
 
     const map = L.map(mapContainerRef.current, {
       center,
-      zoom: 16,
+      zoom: 17,
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap',
-    }).addTo(map);
+    const tile = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        attribution: '© Esri Satellite',
+      }
+    ).addTo(map);
 
     const group = L.layerGroup().addTo(map);
     mapRef.current = map;
+    tileLayerRef.current = tile;
     layerGroupRef.current = group;
 
     return () => {
@@ -153,45 +194,54 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     };
   }, []);
 
+  // Alternar entre Satélite y Calles
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !tileLayerRef.current) return;
+
+    map.removeLayer(tileLayerRef.current);
+
+    const nextTile =
+      mapStyle === 'satelite'
+        ? L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+              maxZoom: 19,
+              attribution: '© Esri Satellite',
+            }
+          )
+        : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap',
+          });
+
+    nextTile.addTo(map);
+    tileLayerRef.current = nextTile;
+  }, [mapStyle]);
+
   // Ajustar vista al territorio activo
   useEffect(() => {
     if (!mapRef.current || !activeTerritory?.polygon?.length) return;
     const bounds = L.latLngBounds(activeTerritory.polygon);
-    mapRef.current.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 });
+    mapRef.current.fitBounds(bounds, { padding: [24, 24], maxZoom: 18 });
   }, [activeTerritory?.id]);
 
-  // Permitir tocar en el mapa pequeño si el publicador quiere afinar el punto exacto
+  // PRIORIDAD #1: Tocar cualquier parte del mapa abre inmediatamente el registro de "No en casa"
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
     const onClick = (e: L.LeafletMouseEvent) => {
-      if (!isPickingOnMap || !activeTerritory) return;
-      const coords: LatLngTuple = [e.latlng.lat, e.latlng.lng];
-      const matchedBlock = findBlockForCoordinates(
-        blocks,
-        activeTerritory.id,
-        coords
-      );
-      setIsPickingOnMap(false);
-      setFormDraft({
-        lat: coords[0],
-        lng: coords[1],
-        blockId: matchedBlock?.id,
-        blockCode: matchedBlock?.code,
-        houseNumber: '',
-        chips: [],
-        notes: '',
-      });
+      openDraftAtCoordinates([e.latlng.lat, e.latlng.lng]);
     };
 
     map.on('click', onClick);
     return () => {
       map.off('click', onClick);
     };
-  }, [isPickingOnMap, activeTerritory, blocks]);
+  }, [activeTerritory, blocks, territoryPoints]);
 
-  // Dibujar manzanas y pines en la nube
+  // Dibujar manzanas e iconos circulares pequeños (22x22px) con número único
   useEffect(() => {
     const group = layerGroupRef.current;
     if (!group || !activeTerritory) return;
@@ -200,10 +250,10 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
 
     if (activeTerritory.polygon.length >= 3) {
       L.polygon(activeTerritory.polygon, {
-        color: '#1e3a8a',
+        color: '#60a5fa',
         weight: 2.5,
         dashArray: '6, 6',
-        fillOpacity: 0.03,
+        fillOpacity: 0.02,
       }).addTo(group);
     }
 
@@ -211,131 +261,96 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
       if (b.polygon.length < 3) return;
       const isDone = b.status === 'completada';
       const poly = L.polygon(b.polygon, {
-        color: isDone ? '#059669' : '#2563eb',
-        weight: 2,
+        color: isDone ? '#34d399' : '#60a5fa',
+        weight: 2.5,
         fillColor: isDone ? '#10b981' : '#3b82f6',
-        fillOpacity: 0.18,
+        fillOpacity: 0.14,
       }).addTo(group);
 
+      // Tocar dentro de una manzana coloca el "No en casa" directamente en ese punto exacto
       poly.on('click', (e: L.LeafletMouseEvent) => {
-        if (isPickingOnMap) {
-          L.DomEvent.stopPropagation(e);
-          setIsPickingOnMap(false);
-          setFormDraft({
-            lat: e.latlng.lat,
-            lng: e.latlng.lng,
-            blockId: b.id,
-            blockCode: b.code,
-            houseNumber: '',
-            chips: [],
-            notes: '',
-          });
-        }
+        L.DomEvent.stopPropagation(e);
+        openDraftAtCoordinates([e.latlng.lat, e.latlng.lng], b);
       });
 
       const centroid = getPolygonCentroid(b.polygon);
       const labelIcon = L.divIcon({
         className: 'custom-block-label',
         html: `<div style="background:${
-          isDone ? '#059669' : '#1e40af'
-        };color:#fff;padding:2px 8px;border-radius:999px;font-weight:900;font-size:12px;box-shadow:0 2px 5px rgba(0,0,0,0.3);">
+          isDone ? 'rgba(5,150,105,0.9)' : 'rgba(30,64,175,0.9)'
+        };color:#fff;padding:2px 7px;border-radius:999px;font-weight:900;font-size:11px;border:1.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.5);">
           ${b.code}${isDone ? ' ✓' : ''}
         </div>`,
-        iconSize: [44, 22],
-        iconAnchor: [22, 11],
+        iconSize: [42, 20],
+        iconAnchor: [21, 10],
       });
       L.marker(centroid, { icon: labelIcon, interactive: false }).addTo(group);
     });
 
-    // Pines de No en casa pendientes y alertas NO VISITAR (solo lectura)
-    territoryPoints.forEach((pt) => {
+    // Iconos circulares pequeños (22x22px) para que no se encimen aunque haya muchos
+    territoryPoints.forEach((pt, idx) => {
       if (pt.status === 'atendido') return;
 
       const isNoVisitar = pt.category === 'no_visitar';
-      const bg = isNoVisitar ? '#dc2626' : '#ea580c';
-      const icon = isNoVisitar ? '🛑' : '🏠';
-      const tag = isNoVisitar
-        ? 'NO VISITAR'
-        : pt.blockCode
-        ? `${pt.blockCode}`
-        : 'No en casa';
+      const bg = isNoVisitar ? '#dc2626' : '#f97316';
+      const displayNum = isNoVisitar
+        ? '!'
+        : String(pt.seqNumber ?? idx + 1);
 
       const pinIcon = L.divIcon({
         className: 'custom-house-pin',
-        html: `<div style="background:${bg};color:#fff;padding:4px 8px;border-radius:10px;border:2px solid #fff;font-weight:800;font-size:12px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.35);">
-          <span>${icon}</span>
-          <span>${tag}</span>
+        html: `<div title="${pt.shortCode || ''} ${
+          pt.label
+        }" style="width:22px;height:22px;border-radius:999px;background:${bg};color:#ffffff;border:2px solid #ffffff;font-weight:900;font-size:11px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.6);cursor:pointer;">
+          ${displayNum}
         </div>`,
-        iconSize: [86, 28],
-        iconAnchor: [43, 14],
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
       });
 
       const m = L.marker([pt.lat, pt.lng], { icon: pinIcon }).addTo(group);
-      m.on('click', () => setSelectedPointId(pt.id));
+      m.on('click', (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
+        setSelectedPointId(pt.id);
+      });
     });
 
     if (userGps) {
       const gpsIcon = L.divIcon({
         className: 'custom-gps-dot',
-        html: `<div style="width:18px;height:18px;border-radius:999px;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 5px rgba(37,99,235,0.3);"></div>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
+        html: `<div style="width:16px;height:16px;border-radius:999px;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 5px rgba(37,99,235,0.35);"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
       });
       L.marker(userGps, { icon: gpsIcon }).addTo(group);
     }
-  }, [
-    activeTerritory,
-    territoryBlocks,
-    territoryPoints,
-    userGps,
-    isPickingOnMap,
-  ]);
+  }, [activeTerritory, territoryBlocks, territoryPoints, userGps]);
 
-  // Capturar GPS frente a la casa y abrir el cuadro rápido de "No en casa"
-  const handleMarkInFrontOfHouse = () => {
+  const handleUseMyCurrentGps = () => {
     if (!activeTerritory) return;
-
-    const openWithCoords = (coords: LatLngTuple) => {
-      setUserGps(coords);
-      const matchedBlock = findBlockForCoordinates(
-        blocks,
-        activeTerritory.id,
-        coords
-      );
-      setFormDraft({
-        lat: coords[0],
-        lng: coords[1],
-        blockId: matchedBlock?.id,
-        blockCode: matchedBlock?.code,
-        houseNumber: '',
-        chips: [],
-        notes: '',
-      });
-    };
 
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          openWithCoords([pos.coords.latitude, pos.coords.longitude]);
+          const coords: LatLngTuple = [
+            pos.coords.latitude,
+            pos.coords.longitude,
+          ];
+          setUserGps(coords);
+          mapRef.current?.setView(coords, 18);
+          openDraftAtCoordinates(coords);
         },
         () => {
-          // Respaldo si se prueba desde una computadora o sin permisos de ubicación
-          const targetBlock =
-            territoryBlocks.find((b) => b.status !== 'completada') ||
-            territoryBlocks[0];
-          const center = targetBlock
-            ? getPolygonCentroid(targetBlock.polygon)
+          const center = mapRef.current
+            ? ([
+                mapRef.current.getCenter().lat,
+                mapRef.current.getCenter().lng,
+              ] as LatLngTuple)
             : getPolygonCentroid(activeTerritory.polygon);
-          openWithCoords([
-            Number((center[0] + (Math.random() - 0.5) * 0.0005).toFixed(6)),
-            Number((center[1] + (Math.random() - 0.5) * 0.0005).toFixed(6)),
-          ]);
+          openDraftAtCoordinates(center);
         },
         { enableHighAccuracy: true, timeout: 5000 }
       );
-    } else {
-      const center = getPolygonCentroid(activeTerritory.polygon);
-      openWithCoords(center);
     }
   };
 
@@ -350,7 +365,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     if (formDraft.chips.length > 0) {
       parts.push(formDraft.chips.join(', '));
     }
-    const label = parts.join(' — ') || 'Casa sin número (Pin GPS)';
+    const label = parts.join(' — ') || 'Casa sin número';
 
     onAddNotAtHome({
       territoryId: activeTerritory.id,
@@ -362,12 +377,10 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
       notes: formDraft.notes.trim() || undefined,
     });
 
-    setFormDraft(null);
     setSavedToast(
-      `✅ Guardado en la nube: "${label}"${
-        formDraft.blockCode ? ` (Manzana ${formDraft.blockCode})` : ''
-      }`
+      `✅ Guardado ${formDraft.previewCode}: "${label}"`
     );
+    setFormDraft(null);
     setTimeout(() => setSavedToast(null), 4000);
   };
 
@@ -384,210 +397,204 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col">
-      {/* Encabezado ligero para el Publicador */}
-      <header className="bg-blue-950 text-white px-4 py-3 flex items-center justify-between shadow-md">
+      {/* Encabezado compacto */}
+      <header className="bg-slate-900 text-white px-3.5 py-2.5 flex items-center justify-between shadow-md">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-            Modo Publicador • {slot.dayName} ({slot.time} hs)
+            {slot.dayName} ({slot.time} hs) • Conductor: {slot.conductorName}
           </div>
-          <div className="font-black text-base sm:text-lg">
-            {activeTerritory?.name} — Conductor: {slot.conductorName}
+          <div className="font-black text-base">
+            {activeTerritory?.name} — Toque la casa en el mapa para anotar "No
+            en casa"
           </div>
         </div>
-        {onExitPreview && (
+
+        <div className="flex items-center gap-2">
           <button
-            onClick={onExitPreview}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold cursor-pointer"
+            onClick={() =>
+              setMapStyle(mapStyle === 'satelite' ? 'calles' : 'satelite')
+            }
+            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer border border-slate-700"
           >
-            Salir de vista Publicador
+            <Layers className="w-3.5 h-3.5 text-amber-300" />
+            {mapStyle === 'satelite' ? '🗺️ Calles' : '🛰️ Satélite'}
           </button>
-        )}
+
+          {onExitPreview && (
+            <button
+              onClick={onExitPreview}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold cursor-pointer"
+            >
+              Salir
+            </button>
+          )}
+        </div>
       </header>
 
-      <div className="max-w-xl w-full mx-auto px-3 sm:px-4 py-4 space-y-4 flex-1">
-        {savedToast && (
-          <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl font-extrabold text-sm shadow-lg flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 shrink-0" />
-            <span>{savedToast}</span>
-          </div>
-        )}
+      {/* Selector de territorio si la salida tiene más de uno */}
+      {assignedTerritories.length > 1 && (
+        <div className="bg-white border-b border-slate-200 px-3 py-2 flex gap-2">
+          {assignedTerritories.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTerritoryId(t.id)}
+              className={`flex-1 py-1.5 px-3 rounded-xl font-black text-xs border cursor-pointer ${
+                activeTerritory?.id === t.id
+                  ? 'bg-blue-700 text-white border-blue-800'
+                  : 'bg-slate-100 text-slate-800 border-slate-300'
+              }`}
+            >
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
 
-        {/* Selector si hay más de 1 territorio en la salida */}
-        {assignedTerritories.length > 1 && (
-          <div className="flex gap-2">
-            {assignedTerritories.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setActiveTerritoryId(t.id)}
-                className={`flex-1 py-2.5 px-3 rounded-xl font-black text-sm border-2 cursor-pointer ${
-                  activeTerritory?.id === t.id
-                    ? 'bg-blue-700 text-white border-blue-800'
-                    : 'bg-white text-slate-800 border-slate-300'
-                }`}
-              >
-                {t.name}
-              </button>
-            ))}
-          </div>
-        )}
+      {savedToast && (
+        <div className="bg-emerald-600 text-white px-4 py-2.5 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{savedToast}</span>
+        </div>
+      )}
 
-        {/* 1. ACCIÓN PRINCIPAL ULTRA-LIGERA: BOTÓN GIGANTE FRENTE A LA CASA */}
-        <div className="bg-white rounded-3xl border-2 border-amber-400 shadow-lg p-5 text-center space-y-3">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-extrabold uppercase">
-            <Crosshair className="w-3.5 h-3.5" />
-            Registro Rápido sin Contraseña
+      {/* 1. MAPA SATELITAL GRANDE (70vh) — TOCAR EL MAPA ES LA PRIORIDAD */}
+      <div className="relative w-full h-[68vh] sm:h-[72vh] bg-slate-900">
+        {/* Cinta superior flotante indicando que tocar el mapa anota directamente */}
+        <div className="absolute top-2.5 left-12 right-3 z-[1000] pointer-events-none flex justify-between items-center">
+          <div className="bg-slate-900/85 backdrop-blur-xs text-white px-3 py-1.5 rounded-xl text-xs font-extrabold shadow-lg border border-slate-700 flex items-center gap-1.5">
+            <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>
+              Toque directamente sobre la casa en el mapa para anotar "No en
+              casa"
+            </span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-slate-900">
-            ¿Nadie atendió en esta casa?
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-600">
-            Párese frente a la puerta y toque el botón naranja para guardar la
-            ubicación GPS como <strong>"No en casa"</strong> en la nube del
-            territorio.
-          </p>
+        </div>
 
+        <div ref={mapContainerRef} className="w-full h-full z-0" />
+
+        {/* Botón auxiliar flotante abajo para usar GPS actual */}
+        <div className="absolute bottom-3 left-3 right-3 z-[1000] flex items-center justify-between gap-2 pointer-events-none">
           <button
-            onClick={handleMarkInFrontOfHouse}
-            className="w-full py-5 px-5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-black text-lg sm:text-xl rounded-2xl shadow-xl flex items-center justify-center gap-3 cursor-pointer transition"
+            type="button"
+            onClick={handleUseMyCurrentGps}
+            className="pointer-events-auto py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs sm:text-sm shadow-xl flex items-center gap-2 cursor-pointer border-2 border-white"
           >
-            <PlusCircle className="w-7 h-7 shrink-0" />
-            <span>ESTOY FRENTE A LA CASA: ANOTAR "NO EN CASA"</span>
-          </button>
-
-          <button
-            onClick={() => setIsPickingOnMap(!isPickingOnMap)}
-            className="inline-flex items-center gap-1.5 text-xs font-extrabold text-blue-800 hover:underline pt-1 cursor-pointer"
-          >
-            <MapPin className="w-3.5 h-3.5" />
-            {isPickingOnMap
-              ? 'Toque ahora la ubicación en el mapa de abajo...'
-              : 'O tocar el punto manualmente en el mapa de abajo'}
+            <Crosshair className="w-4 h-4" />
+            <span>Anotar en mi ubicación GPS actual</span>
           </button>
         </div>
 
-        {/* 2. MAPA PEQUEÑO OPCIONAL ABAJO + PINES "NO EN CASA" EN LA NUBE */}
-        <div className="bg-white rounded-3xl border-2 border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-            <div className="font-extrabold text-xs sm:text-sm text-slate-800 flex items-center gap-1.5">
-              <Home className="w-4 h-4 text-amber-600" />
-              <span>
-                Mapa de {activeTerritory?.name} ({pendingNotAtHome.length} "No
-                en casa" pendientes)
-              </span>
-            </div>
-            <span className="text-[11px] font-bold text-slate-500">
-              Toque un pin para ir o marcar visitado
-            </span>
-          </div>
-
-          {isPickingOnMap && (
-            <div className="bg-amber-500 text-white px-4 py-2 text-xs font-extrabold flex items-center justify-between">
-              <span>👆 Toque en el mapa dónde está la casa "No en casa"</span>
+        {/* Detalle flotante si tocó un pin existente en el mapa */}
+        {selectedPoint && (
+          <div className="absolute bottom-16 left-3 right-3 sm:left-auto sm:right-3 sm:w-88 z-[1000] bg-white rounded-2xl shadow-2xl border-2 border-amber-500 p-4 space-y-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <span className="inline-block text-xs font-black uppercase px-2 py-0.5 rounded bg-amber-200 text-amber-950">
+                  {selectedPoint.category === 'no_visitar'
+                    ? `🛑 NO VISITAR (${selectedPoint.shortCode || 'NV'})`
+                    : `🏠 Casa #${selectedPoint.shortCode || selectedPoint.seqNumber || 1}`}
+                </span>
+                <div className="font-black text-sm sm:text-base text-slate-900 mt-1">
+                  {selectedPoint.label}
+                </div>
+                {selectedPoint.notes && (
+                  <div className="text-xs text-slate-600">
+                    {selectedPoint.notes}
+                  </div>
+                )}
+              </div>
               <button
-                onClick={() => setIsPickingOnMap(false)}
-                className="underline font-black cursor-pointer"
+                onClick={() => setSelectedPointId(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
               >
-                Cancelar
+                <X className="w-5 h-5" />
               </button>
             </div>
-          )}
 
-          <div ref={mapContainerRef} className="h-72 w-full z-0" />
-
-          {/* Si el publicador tocó un pin en el mapa pequeño (ej. cuando va a hacer 1 No en casa pendiente) */}
-          {selectedPoint && (
-            <div className="p-4 bg-amber-50 border-t-2 border-amber-300 space-y-2.5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <span className="text-xs font-black uppercase px-2 py-0.5 rounded bg-amber-200 text-amber-950">
-                    {selectedPoint.category === 'no_visitar'
-                      ? '🛑 NO VISITAR (Solo lectura)'
-                      : `🏠 No en Casa Pendiente${
-                          selectedPoint.blockCode
-                            ? ` • Manzana ${selectedPoint.blockCode}`
-                            : ''
-                        }`}
-                  </span>
-                  <div className="font-black text-base text-slate-900 mt-1">
-                    {selectedPoint.label}
-                  </div>
-                  {selectedPoint.notes && (
-                    <div className="text-xs text-slate-700">
-                      {selectedPoint.notes}
-                    </div>
+            {selectedPoint.category !== 'no_visitar' && (
+              <div className="grid grid-cols-2 gap-2">
+                <a
+                  href={getGoogleMapsNavigationUrl(
+                    selectedPoint.lat,
+                    selectedPoint.lng
                   )}
-                </div>
-                <button
-                  onClick={() => setSelectedPointId(null)}
-                  className="p-1 text-slate-500 cursor-pointer"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1"
                 >
-                  <X className="w-5 h-5" />
+                  <Navigation className="w-3.5 h-3.5" />
+                  Cómo llegar
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+
+                <button
+                  onClick={() => {
+                    onMarkHouseVisited(selectedPoint.id, 'atendido');
+                    setSelectedPointId(null);
+                    setSavedToast(
+                      `✅ Casa ${selectedPoint.shortCode || ''} marcada como atendida`
+                    );
+                    setTimeout(() => setSavedToast(null), 3500);
+                  }}
+                  className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  ¡Ya atendieron!
                 </button>
               </div>
+            )}
+          </div>
+        )}
+      </div>
 
-              {selectedPoint.category !== 'no_visitar' && (
-                <div className="grid grid-cols-2 gap-2">
-                  <a
-                    href={getGoogleMapsNavigationUrl(
-                      selectedPoint.lat,
-                      selectedPoint.lng
-                    )}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-2.5 px-3 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5"
-                  >
-                    <Navigation className="w-4 h-4" />
-                    Cómo llegar (Maps)
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+      {/* 2. LISTA COMPACTA DE "NO EN CASA" PENDIENTES CON SU IDENTIFICADOR ÚNICO (1A-1, 1A-2...) */}
+      <div className="max-w-3xl w-full mx-auto p-3.5 space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+            <Home className="w-4 h-4 text-amber-600" />
+            Casas "No en casa" en {activeTerritory?.name} (
+            {pendingNotAtHome.length})
+          </h2>
+        </div>
 
-                  <button
-                    onClick={() => {
-                      onMarkHouseVisited(selectedPoint.id, 'atendido');
-                      setSelectedPointId(null);
-                      setSavedToast('✅ Casa marcada como atendida en la nube');
-                      setTimeout(() => setSavedToast(null), 3500);
-                    }}
-                    className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Check className="w-4 h-4" />
-                    ¡Ya atendieron!
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Lista compacta debajo del mapa de los No en casa pendientes */}
-          {pendingNotAtHome.length > 0 && (
-            <div className="p-3.5 border-t border-slate-200 space-y-2">
-              <div className="text-xs font-extrabold uppercase text-slate-500">
-                Casas "No en casa" pendientes en este territorio:
-              </div>
-              {pendingNotAtHome.map((pt) => (
+        {pendingNotAtHome.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-3 text-center text-xs text-slate-500">
+            No hay casas "No en casa" pendientes en este territorio. Toque
+            cualquier casa en el mapa satelital arriba para agregar una.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {pendingNotAtHome.map((pt, idx) => {
+              const code =
+                pt.shortCode ||
+                `${pt.blockCode || `T${activeTerritory?.number ?? 1}`}-${
+                  pt.seqNumber ?? idx + 1
+                }`;
+              return (
                 <div
                   key={pt.id}
                   onClick={() => {
                     setSelectedPointId(pt.id);
-                    mapRef.current?.setView([pt.lat, pt.lng], 18);
+                    mapRef.current?.setView([pt.lat, pt.lng], 19);
                   }}
-                  className="p-2.5 rounded-xl bg-slate-50 hover:bg-amber-50 border border-slate-200 flex items-center justify-between gap-2 cursor-pointer"
+                  className="p-2.5 rounded-xl bg-white hover:bg-amber-50 border border-slate-200 flex items-center justify-between gap-2 cursor-pointer shadow-2xs"
                 >
-                  <div className="text-xs sm:text-sm font-bold text-slate-900">
-                    {pt.blockCode && (
-                      <span className="font-black text-amber-800 mr-1.5">
-                        [{pt.blockCode}]
-                      </span>
-                    )}
-                    {pt.label}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="shrink-0 px-2 py-1 rounded-lg bg-amber-500 text-white font-black text-xs">
+                      {code}
+                    </span>
+                    <span className="text-xs font-bold text-slate-900 truncate">
+                      {pt.label}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+
+                  <div className="flex items-center gap-1 shrink-0">
                     <a
                       href={getGoogleMapsNavigationUrl(pt.lat, pt.lng)}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="px-2.5 py-1.5 rounded-lg bg-blue-100 text-blue-900 font-extrabold text-xs"
+                      className="px-2 py-1 rounded-lg bg-blue-100 text-blue-900 font-extrabold text-[11px]"
                     >
                       Ir
                     </a>
@@ -596,19 +603,19 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
                         e.stopPropagation();
                         onMarkHouseVisited(pt.id, 'atendido');
                       }}
-                      className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white font-extrabold text-xs cursor-pointer"
+                      className="px-2 py-1 rounded-lg bg-emerald-600 text-white font-extrabold text-[11px] cursor-pointer"
                     >
-                      ✓ Atendió
+                      ✓
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* MODAL SIMPLE PARA ANOTAR EL "NO EN CASA" (SIN OPCIÓN DE "NO VISITAR") */}
+      {/* MODAL PARA GUARDAR EL "NO EN CASA" AL TOCAR EL MAPA */}
       {formDraft && (
         <div className="fixed inset-0 z-[2000] bg-slate-900/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
           <form
@@ -616,16 +623,20 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
             className="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl border-t-4 border-amber-500"
           >
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div>
-                <span className="text-xs font-extrabold uppercase text-amber-700">
-                  📍 Ubicación GPS Lista
-                  {formDraft.blockCode
-                    ? ` • Manzana ${formDraft.blockCode}`
-                    : ''}
+              <div className="flex items-center gap-2.5">
+                <span className="px-3 py-1.5 rounded-xl bg-amber-500 text-white font-black text-sm">
+                  #{formDraft.previewCode}
                 </span>
-                <h2 className="text-xl font-black text-slate-900">
-                  Anotar Casa "No en Casa"
-                </h2>
+                <div>
+                  <span className="text-[11px] font-extrabold uppercase text-amber-800 block">
+                    Nuevo "No en Casa"
+                  </span>
+                  <h2 className="text-lg font-black text-slate-900 leading-tight">
+                    {formDraft.blockCode
+                      ? `Manzana ${formDraft.blockCode}`
+                      : activeTerritory?.name}
+                  </h2>
+                </div>
               </div>
               <button
                 type="button"
@@ -638,7 +649,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
 
             {territoryBlocks.length > 0 && (
               <div>
-                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1.5">
+                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                   Manzana:
                 </label>
                 <div className="flex flex-wrap gap-1.5">
@@ -651,9 +662,10 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
                           ...formDraft,
                           blockId: b.id,
                           blockCode: b.code,
+                          previewCode: computeNextShortCode(b.code),
                         })
                       }
-                      className={`px-3 py-1.5 rounded-xl font-extrabold text-xs border-2 cursor-pointer ${
+                      className={`px-3 py-1 rounded-lg font-extrabold text-xs border cursor-pointer ${
                         formDraft.blockCode === b.code
                           ? 'bg-blue-700 text-white border-blue-800'
                           : 'bg-slate-100 text-slate-800 border-slate-200'
@@ -677,7 +689,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
                   setFormDraft({ ...formDraft, houseNumber: e.target.value })
                 }
                 placeholder="Ej. N° 432..."
-                className="w-full px-3.5 py-3 rounded-xl border-2 border-slate-300 focus:border-amber-600 focus:outline-none font-bold text-base"
+                className="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-300 focus:border-amber-600 focus:outline-none font-bold text-base"
               />
             </div>
 
@@ -693,7 +705,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
                       type="button"
                       key={chip}
                       onClick={() => toggleChip(chip)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer ${
                         active
                           ? 'bg-amber-100 border-amber-500 text-amber-950'
                           : 'bg-slate-100 border-slate-300 text-slate-700'
@@ -706,34 +718,19 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                Nota adicional (Opcional):
-              </label>
-              <input
-                type="text"
-                value={formDraft.notes}
-                onChange={(e) =>
-                  setFormDraft({ ...formDraft, notes: e.target.value })
-                }
-                placeholder="Ej. Timbre de arriba..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
-              />
-            </div>
-
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setFormDraft(null)}
-                className="w-1/3 py-3.5 rounded-xl border-2 border-slate-300 font-bold text-slate-700 cursor-pointer"
+                className="w-1/3 py-3 rounded-xl border-2 border-slate-300 font-bold text-slate-700 text-sm cursor-pointer"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="w-2/3 py-3.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-base shadow-md cursor-pointer"
+                className="w-2/3 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-sm shadow-md cursor-pointer"
               >
-                Guardar "No en Casa"
+                Guardar #{formDraft.previewCode}
               </button>
             </div>
           </form>

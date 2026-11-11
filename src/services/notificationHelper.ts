@@ -20,6 +20,54 @@ export function getPublisherGroupLink(slotId: string): string {
 }
 
 /**
+ * Construye el mensaje completo del Programa Semanal de Predicación para que el Admin lo comparta por WhatsApp con 1 botón
+ */
+export function buildWeeklyScheduleWhatsAppMessage(
+  congregationName: string,
+  schedule: ScheduleSlot[],
+  territories: Territory[]
+): string {
+  const lines = [
+    `📅 *PROGRAMA SEMANAL DE PREDICACIÓN*`,
+    `🏛️ *${congregationName || 'Congregación'}*`,
+    ``,
+  ];
+
+  if (schedule.length === 0) {
+    lines.push(`No hay salidas programadas.`);
+    return lines.join('\n');
+  }
+
+  schedule.forEach((slot) => {
+    const terrNames =
+      territories
+        .filter((t) => slot.territoryIds.includes(t.id))
+        .map((t) => t.name)
+        .join(', ') || 'Por asignar';
+
+    const dateFormatted = slot.date ? ` (${slot.date})` : '';
+    const dayLabel = slot.dayOfWeek || slot.dayName;
+
+    lines.push(
+      `🔹 *${dayLabel}${dateFormatted} — ${slot.time} hs*`,
+      `👤 *Conductor:* ${slot.conductorName}`,
+      `📍 *Punto de encuentro:* ${slot.meetingPointName}`,
+      `🗺️ *Ubicación Maps:* ${slot.meetingPointUrl}`,
+      `🧭 *Territorio(s):* ${terrNames}` +
+        (slot.notes ? `\n📝 _Nota: ${slot.notes}_` : ''),
+      ``
+    );
+  });
+
+  return lines.join('\n');
+}
+
+export function openWhatsAppShare(text: string): void {
+  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/**
  * Rellena una plantilla de Notificación Push editable por el Admin con los datos reales de la salida
  */
 export function renderPushTemplate(

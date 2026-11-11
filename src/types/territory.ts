@@ -48,6 +48,8 @@ export interface HousePoint {
   territoryId: string;
   blockId?: string;       // Ej. ID de la manzana "1A"
   blockCode?: string;     // Ej. "1A"
+  seqNumber?: number;     // Ej. 1, 2, 3 (número correlativo dentro de su manzana o territorio)
+  shortCode?: string;     // Ej. "1A-1", "1A-2", "T3-1" (identificador único de la casa)
   lat: number;
   lng: number;
   category: HousePointCategory;
@@ -75,7 +77,8 @@ export interface Territory {
 
 export interface ScheduleSlot {
   id: string;
-  dayName: string;        // Ej. "Martes Mañana", "Sábado Mañana"
+  dayName: string;        // Ej. "Martes", "Sábado Mañana"
+  dayOfWeek?: string;     // Ej. "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"
   date: string;           // YYYY-MM-DD
   time: string;           // Ej. "09:30"
   conductorId: string;    // ID del conductor asignado

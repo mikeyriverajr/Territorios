@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import {
+  Edit3,
+  Save,
+  Share2,
   Bell,
   Calendar,
   CheckCircle2,
@@ -34,7 +37,9 @@ import {
   parseTerritoriesKml,
 } from '../services/kmlImporter';
 import {
+  buildWeeklyScheduleWhatsAppMessage,
   getGoogleMapsNavigationUrl,
+  openWhatsAppShare,
   renderPushTemplate,
   triggerBrowserNotification,
 } from '../services/notificationHelper';
@@ -43,6 +48,35 @@ import {
   loadCloudConfig,
   saveCloudConfig,
 } from '../services/storageAndSync';
+import { MapEditorView } from './MapEditorView';
+
+const DAYS_OF_WEEK = [
+  'Domingo',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+];
+
+function dayOfWeekFromDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return 'Lunes';
+  return DAYS_OF_WEEK[new Date(y, m - 1, d).getDay()];
+}
+
+/** Mueve la fecha a la próxima ocurrencia (desde la fecha actual) del día de semana elegido */
+function shiftDateToDayOfWeek(iso: string, targetDay: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const base = y && m && d ? new Date(y, m - 1, d) : new Date();
+  const targetIdx = DAYS_OF_WEEK.indexOf(targetDay);
+  const diff = (targetIdx - base.getDay() + 7) % 7;
+  base.setDate(base.getDate() + diff);
+  const mm = String(base.getMonth() + 1).padStart(2, '0');
+  const dd = String(base.getDate()).padStart(2, '0');
+  return `${base.getFullYear()}-${mm}-${dd}`;
+}
 
 interface AdminDashboardProps {
   db: AppDatabase;
@@ -56,7 +90,14 @@ interface AdminDashboardProps {
   onAddConductor: (name: string, pin: string) => void;
   onDeleteConductor: (conductorId: string) => void;
   onAddScheduleSlot: (slot: Omit<ScheduleSlot, 'id'>) => void;
+  onUpdateScheduleSlot: (slot: ScheduleSlot) => void;
   onDeleteScheduleSlot: (slotId: string) => void;
+  onSaveTerritory: (t: Territory) => void;
+  onCreateTerritory: (t: Territory) => void;
+  onDeleteTerritory: (territoryId: string) => void;
+  onSaveBlock: (b: Block) => void;
+  onCreateBlock: (b: Block) => void;
+  onDeleteBlock: (blockId: string) => void;
   onUpdateNotificationTemplate: (updated: PushNotificationTemplate) => void;
   onSendPushNotificationToConductor: (params: {
     conductorId: string;
@@ -79,7 +120,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddConductor,
   onDeleteConductor,
   onAddScheduleSlot,
+  onUpdateScheduleSlot,
   onDeleteScheduleSlot,
+  onSaveTerritory,
+  onCreateTerritory,
+  onDeleteTerritory,
+  onSaveBlock,
+  onCreateBlock,
+  onDeleteBlock,
   onUpdateNotificationTemplate,
   onSendPushNotificationToConductor,
   onCompleteWholeTerritory,
@@ -89,24 +137,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onLaunchStartupWizard,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'programa' | 'notificaciones' | 'nube_s13' | 'mapas' | 'ajustes'
+    'programa' | 'notificaciones' | 'nube_s13' | 'editor' | 'ajustes'
   >('programa');
 
   // Estados para Conductores
   const [newConductorName, setNewConductorName] = useState<string>('');
   const [newConductorPin, setNewConductorPin] = useState<string>('');
 
-  // Estados para Programa Semanal
-  const [dayName, setDayName] = useState<string>('Sábado Mañana');
+  // Estados para Programa Semanal (asignación por fecha + día de la semana)
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  const [slotDate, setSlotDate] = useState<string>(todayIso);
+  const [dayOfWeek, setDayOfWeek] = useState<string>(dayOfWeekFromDate(todayIso));
+  const [shiftLabel, setShiftLabel] = useState<string>('Mañana');
   const [time, setTime] = useState<string>('09:30');
   const [selectedConductorId, setSelectedConductorId] = useState<string>(
-    db.conductors[0]?.id || 'cond-1'
+    db.conductors[0]?.id || ''
   );
   const [meetingPointName, setMeetingPointName] = useState<string>('');
   const [meetingPointUrl, setMeetingPointUrl] = useState<string>('');
-  const [selectedTerritoryIds, setSelectedTerritoryIds] = useState<string[]>([
-    db.territories[0]?.id || 'terr-1',
-  ]);
+  const [selectedTerritoryIds, setSelectedTerritoryIds] = useState<string[]>([]);
+  const [territoryToAdd, setTerritoryToAdd] = useState<string>('');
   const [slotNotes, setSlotNotes] = useState<string>('');
 
   // Estados para el Módulo Exclusivo de Notificaciones Push
@@ -145,14 +196,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setNewConductorPin('');
   };
 
+  const resetSlotForm = () => {
+    setEditingSlotId(null);
+    setSlotDate(todayIso);
+    setDayOfWeek(dayOfWeekFromDate(todayIso));
+    setShiftLabel('Mañana');
+    setTime('09:30');
+    setMeetingPointName('');
+    setMeetingPointUrl('');
+    setSelectedTerritoryIds([]);
+    setSlotNotes('');
+  };
+
+  const handleStartEditSlot = (slot: ScheduleSlot) => {
+    setEditingSlotId(slot.id);
+    setSlotDate(slot.date || todayIso);
+    setDayOfWeek(slot.dayOfWeek || dayOfWeekFromDate(slot.date || todayIso));
+    const shift = slot.dayName.replace(slot.dayOfWeek || '', '').trim();
+    setShiftLabel(shift || 'Mañana');
+    setTime(slot.time);
+    setSelectedConductorId(slot.conductorId);
+    setMeetingPointName(slot.meetingPointName);
+    setMeetingPointUrl(slot.meetingPointUrl);
+    setSelectedTerritoryIds(slot.territoryIds);
+    setSlotNotes(slot.notes || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleCreateSlot = (e: React.FormEvent) => {
     e.preventDefault();
     const cond = db.conductors.find((c) => c.id === selectedConductorId);
-    if (!cond || !meetingPointName.trim()) return;
+    if (!cond || !meetingPointName.trim() || selectedTerritoryIds.length === 0)
+      return;
 
-    onAddScheduleSlot({
-      dayName,
-      date: new Date().toISOString().slice(0, 10),
+    const payload: Omit<ScheduleSlot, 'id'> = {
+      dayName: `${dayOfWeek} ${shiftLabel}`.trim(),
+      dayOfWeek,
+      date: slotDate,
       time,
       conductorId: cond.id,
       conductorName: cond.name,
@@ -162,16 +242,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
           meetingPointName.trim()
         )}`,
-      territoryIds:
-        selectedTerritoryIds.length > 0
-          ? selectedTerritoryIds
-          : [db.territories[0]?.id || 'terr-1'],
+      territoryIds: selectedTerritoryIds,
       notes: slotNotes.trim() || undefined,
-    });
+    };
 
-    setMeetingPointName('');
-    setMeetingPointUrl('');
-    setSlotNotes('');
+    if (editingSlotId) {
+      onUpdateScheduleSlot({ ...payload, id: editingSlotId });
+    } else {
+      onAddScheduleSlot(payload);
+    }
+    resetSlotForm();
+  };
+
+  const sortedSchedule = [...db.schedule].sort((a, b) =>
+    `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)
+  );
+
+  const handleShareWeeklyScheduleWhatsApp = () => {
+    const text = buildWeeklyScheduleWhatsAppMessage(
+      db.congregationName,
+      sortedSchedule,
+      db.territories
+    );
+    openWhatsAppShare(text);
   };
 
   const handleDispatchPushFromTemplate = async (
@@ -325,97 +418,111 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto px-3 sm:px-6 py-5 space-y-6 pb-24">
-      {/* Navegación de los 5 Módulos del Siervo de Territorios / Admin */}
+            {/* Pestañas del Siervo de Territorios / Admin (sin números) */}
       <div className="bg-white rounded-2xl border-2 border-slate-200 p-2 flex flex-wrap gap-1.5 shadow-xs">
-        <button
-          onClick={() => setActiveTab('programa')}
-          className={`flex-1 min-w-[140px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition ${
-            activeTab === 'programa'
-              ? 'bg-blue-700 text-white shadow-xs'
-              : 'text-slate-700 hover:bg-slate-100'
-          }`}
-        >
-          <Calendar className="w-4 h-4" />
-          1. Programa y Conductores
-        </button>
-
-        <button
-          onClick={() => setActiveTab('notificaciones')}
-          className={`flex-1 min-w-[150px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition ${
-            activeTab === 'notificaciones'
-              ? 'bg-amber-600 text-white shadow-xs'
-              : 'text-slate-700 hover:bg-slate-100'
-          }`}
-        >
-          <Bell className="w-4 h-4" />
-          2. Módulo Notificaciones Push
-        </button>
-
-        <button
-          onClick={() => setActiveTab('nube_s13')}
-          className={`flex-1 min-w-[150px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition ${
-            activeTab === 'nube_s13'
-              ? 'bg-blue-700 text-white shadow-xs'
-              : 'text-slate-700 hover:bg-slate-100'
-          }`}
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          3. Nube "No en Casa" y S-13
-        </button>
-
-        <button
-          onClick={() => setActiveTab('mapas')}
-          className={`flex-1 min-w-[140px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition ${
-            activeTab === 'mapas'
-              ? 'bg-blue-700 text-white shadow-xs'
-              : 'text-slate-700 hover:bg-slate-100'
-          }`}
-        >
-          <FileUp className="w-4 h-4" />
-          4. Importar 2 Mapas
-        </button>
-
-        <button
-          onClick={() => setActiveTab('ajustes')}
-          className={`py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition ${
-            activeTab === 'ajustes'
-              ? 'bg-blue-700 text-white shadow-xs'
-              : 'text-slate-700 hover:bg-slate-100'
-          }`}
-        >
-          <Cloud className="w-4 h-4" />
-          5. Ajustes
-        </button>
+        {(
+          [
+            { key: 'programa', label: 'Programa y Conductores', icon: Calendar },
+            { key: 'notificaciones', label: 'Notificaciones Push', icon: Bell },
+            { key: 'nube_s13', label: 'Territorios y S-13', icon: FileSpreadsheet },
+            { key: 'editor', label: 'Editor de Mapas', icon: Edit3 },
+            { key: 'ajustes', label: 'Ajustes', icon: Cloud },
+          ] as const
+        ).map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                activeTab === tab.key
+                  ? 'bg-blue-700 text-white shadow-xs'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* MÓDULO 1: PROGRAMA SEMANAL, ASIGNACIÓN DE TERRITORIOS Y CONDUCTORES */}
+      {/* PROGRAMA SEMANAL, ASIGNACIÓN DE TERRITORIOS Y CONDUCTORES */}
       {activeTab === 'programa' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Columna izquierda (2/3): Armar Programa Semanal */}
           <div className="lg:col-span-2 space-y-6">
             <form
               onSubmit={handleCreateSlot}
-              className="bg-white rounded-2xl border-2 border-slate-200 p-5 sm:p-6 space-y-4 shadow-xs"
+              className={`bg-white rounded-2xl border-2 p-5 sm:p-6 space-y-4 shadow-xs ${
+                editingSlotId ? 'border-amber-400' : 'border-slate-200'
+              }`}
             >
-              <h2 className="text-xl font-black text-slate-900">
-                Crear Salida y Asignar Territorio al Conductor
-              </h2>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xl font-black text-slate-900">
+                  {editingSlotId ? '✏️ Editar Salida' : 'Nueva Salida'}
+                </h2>
+                {editingSlotId && (
+                  <button
+                    type="button"
+                    onClick={resetSlotForm}
+                    className="text-xs font-bold text-slate-600 hover:underline cursor-pointer"
+                  >
+                    Cancelar edición
+                  </button>
+                )}
+              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Fecha + Día de la semana + Turno + Hora */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Día y Turno:
+                    Fecha:
                   </label>
                   <input
-                    type="text"
-                    value={dayName}
-                    onChange={(e) => setDayName(e.target.value)}
-                    placeholder="Ej. Sábado Mañana"
+                    type="date"
+                    value={slotDate}
+                    onChange={(e) => {
+                      setSlotDate(e.target.value);
+                      setDayOfWeek(dayOfWeekFromDate(e.target.value));
+                    }}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
                     required
                   />
                 </div>
-
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                    Día:
+                  </label>
+                  <select
+                    value={dayOfWeek}
+                    onChange={(e) => {
+                      setDayOfWeek(e.target.value);
+                      setSlotDate(shiftDateToDayOfWeek(slotDate, e.target.value));
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                  >
+                    {DAYS_OF_WEEK.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                    Turno:
+                  </label>
+                  <select
+                    value={shiftLabel}
+                    onChange={(e) => setShiftLabel(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                  >
+                    <option value="Mañana">Mañana</option>
+                    <option value="Tarde">Tarde</option>
+                    <option value="Noche">Noche</option>
+                    <option value="">(Sin turno)</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                     Hora:
@@ -428,29 +535,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     required
                   />
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Conductor Asignado:
+                    Conductor:
                   </label>
                   <select
                     value={selectedConductorId}
                     onChange={(e) => setSelectedConductorId(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                    required
                   >
+                    <option value="" disabled>
+                      Elegir conductor...
+                    </option>
                     {db.conductors.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} (PIN: {c.pin})
+                        {c.name}
                       </option>
                     ))}
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Nombre del Punto de Encuentro:
+                    Punto de Encuentro:
                   </label>
                   <input
                     type="text"
@@ -461,10 +571,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     required
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Link de Google Maps del Encuentro:
+                    Link Google Maps:
                   </label>
                   <input
                     type="text"
@@ -476,36 +585,65 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Selector compacto de territorios */}
               <div>
-                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1.5">
-                  Territorio(s) Asignado(s):
+                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                  Territorio(s):
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {db.territories.map((t) => {
-                    const selected = selectedTerritoryIds.includes(t.id);
-                    return (
-                      <button
-                        type="button"
-                        key={t.id}
-                        onClick={() =>
-                          setSelectedTerritoryIds(
-                            selected
-                              ? selectedTerritoryIds.filter((id) => id !== t.id)
-                              : [...selectedTerritoryIds, t.id]
-                          )
-                        }
-                        className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold border-2 cursor-pointer transition ${
-                          selected
-                            ? 'bg-blue-700 text-white border-blue-800'
-                            : 'bg-slate-100 text-slate-800 border-slate-200'
-                        }`}
-                      >
-                        {selected ? '✓ ' : '+ '}
-                        {t.name}
-                      </button>
-                    );
-                  })}
+                <div className="flex gap-2">
+                  <select
+                    value={territoryToAdd}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (id && !selectedTerritoryIds.includes(id)) {
+                        setSelectedTerritoryIds([...selectedTerritoryIds, id]);
+                      }
+                      setTerritoryToAdd('');
+                    }}
+                    className="flex-1 px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                  >
+                    <option value="">+ Agregar territorio...</option>
+                    {db.territories
+                      .filter((t) => !selectedTerritoryIds.includes(t.id))
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                          {t.status === 'completado' ? ' (completado)' : ''}
+                        </option>
+                      ))}
+                  </select>
                 </div>
+                {selectedTerritoryIds.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {selectedTerritoryIds.map((id) => {
+                      const t = db.territories.find((x) => x.id === id);
+                      return (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg bg-blue-100 text-blue-900 text-xs font-extrabold"
+                        >
+                          {t?.name || id}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedTerritoryIds(
+                                selectedTerritoryIds.filter((x) => x !== id)
+                              )
+                            }
+                            className="w-5 h-5 rounded hover:bg-blue-200 flex items-center justify-center cursor-pointer"
+                            title="Quitar"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Elija al menos un territorio.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -523,30 +661,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <button
                 type="submit"
-                className="w-full sm:w-auto px-6 py-3 bg-blue-700 hover:bg-blue-800 text-white font-black text-sm rounded-xl shadow-sm inline-flex items-center justify-center gap-2 cursor-pointer"
+                className={`w-full sm:w-auto px-6 py-3 text-white font-black text-sm rounded-xl shadow-sm inline-flex items-center justify-center gap-2 cursor-pointer ${
+                  editingSlotId
+                    ? 'bg-amber-600 hover:bg-amber-700'
+                    : 'bg-blue-700 hover:bg-blue-800'
+                }`}
               >
-                <Plus className="w-4 h-4" />
-                Publicar Salida en el Programa
+                {editingSlotId ? (
+                  <>
+                    <Save className="w-4 h-4" />
+                    Guardar Cambios
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    Publicar Salida
+                  </>
+                )}
               </button>
             </form>
 
-            {/* Lista de salidas asignadas */}
+            {/* Programa semanal publicado */}
             <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-3">
-              <h3 className="font-black text-lg text-slate-900">
-                Salidas del Programa Semanal ({db.schedule.length})
-              </h3>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-black text-lg text-slate-900">
+                  Programa Semanal ({sortedSchedule.length})
+                </h3>
+                <button
+                  onClick={handleShareWeeklyScheduleWhatsApp}
+                  disabled={sortedSchedule.length === 0}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Share2 className="w-4 h-4" />
+                  Compartir Programa por WhatsApp
+                </button>
+              </div>
               <div className="space-y-2.5">
-                {db.schedule.map((slot) => (
+                {sortedSchedule.map((slot) => (
                   <div
                     key={slot.id}
-                    className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3"
+                    className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
+                      editingSlotId === slot.id
+                        ? 'bg-amber-50 border-amber-300'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
                   >
                     <div>
                       <div className="font-extrabold text-sm sm:text-base text-slate-900">
-                        {slot.dayName} ({slot.time} hs) — {slot.conductorName}
+                        {slot.dayName} {slot.date ? `(${slot.date})` : ''} —{' '}
+                        {slot.time} hs
                       </div>
                       <div className="text-xs text-slate-600">
-                        📍 {slot.meetingPointName} | Territorios:{' '}
+                        👤 {slot.conductorName} | 📍 {slot.meetingPointName} |{' '}
                         {db.territories
                           .filter((t) => slot.territoryIds.includes(t.id))
                           .map((t) => t.name)
@@ -555,19 +721,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleStartEditSlot(slot)}
+                        className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        Editar
+                      </button>
                       {slot.territoryIds[0] && (
                         <button
-                          onClick={() =>
-                            onOpenTerritoryInMap(slot.territoryIds[0])
-                          }
+                          onClick={() => onOpenTerritoryInMap(slot.territoryIds[0])}
                           className="px-3 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-900 font-bold text-xs flex items-center gap-1 cursor-pointer"
                         >
                           <Map className="w-3.5 h-3.5" />
-                          Ver Mapa
+                          Mapa
                         </button>
                       )}
                       <button
-                        onClick={() => onDeleteScheduleSlot(slot.id)}
+                        onClick={() => {
+                          if (editingSlotId === slot.id) resetSlotForm();
+                          onDeleteScheduleSlot(slot.id);
+                        }}
                         className="p-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 cursor-pointer"
                         title="Eliminar salida"
                       >
@@ -579,6 +753,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
           </div>
+
 
           {/* Columna derecha (1/3): Gestión de Conductores y sus PINs de 4 dígitos */}
           <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4 h-fit">
@@ -1018,120 +1193,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* MÓDULO 4: IMPORTAR LOS 2 ARCHIVOS SEPARADOS DE GOOGLE MY MAPS */}
-      {activeTab === 'mapas' && (
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 sm:p-6 space-y-6 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
-            <div>
-              <h2 className="text-xl font-black text-slate-900">
-                Importar los 2 Archivos desde Google My Maps (`.kml` o `.kmz`)
-              </h2>
-              <p className="text-sm text-slate-600 mt-0.5">
-                Suba por separado el <strong>Archivo 1 (Territorios)</strong> y
-                el <strong>Archivo 2 (Manzanas y Casas)</strong>.
-              </p>
-            </div>
-            <button
-              onClick={handleLoadSampleTwoFiles}
-              className="shrink-0 inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 font-extrabold text-xs sm:text-sm cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4 text-indigo-600" />
-              Probar con los 2 KML de ejemplo
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/40 p-5 space-y-3">
-              <span className="px-2.5 py-1 rounded-lg bg-blue-700 text-white font-black text-xs uppercase">
-                Archivo 1 • Territorios Individuales
-              </span>
-              <h3 className="font-extrabold text-base text-slate-900">
-                Mapa de Contornos de Territorios (Territorio 1, 2, 3...)
-              </h3>
-              <label className="block w-full py-3 px-4 bg-white hover:bg-blue-50 text-blue-900 border-2 border-blue-300 rounded-xl font-extrabold text-sm text-center cursor-pointer transition">
-                📂 Seleccionar Archivo 1 (.kml / .kmz)
-                <input
-                  type="file"
-                  accept=".kml,.kmz,.xml"
-                  onChange={handleFile1Upload}
-                  className="hidden"
-                />
-              </label>
-              {file1Name && (
-                <div className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
-                  ✓ Cargado: {file1Name} ({parsedTerritoriesPreview.length}{' '}
-                  territorios)
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border-2 border-dashed border-amber-500 bg-amber-50/40 p-5 space-y-3">
-              <span className="px-2.5 py-1 rounded-lg bg-amber-600 text-white font-black text-xs uppercase">
-                Archivo 2 • Manzanas y Casas
-              </span>
-              <h3 className="font-extrabold text-base text-slate-900">
-                Mapa de Manzanas (1A, 1B, 2A...) y Casas Rurales
-              </h3>
-              <label className="block w-full py-3 px-4 bg-white hover:bg-amber-50 text-amber-950 border-2 border-amber-400 rounded-xl font-extrabold text-sm text-center cursor-pointer transition">
-                📂 Seleccionar Archivo 2 (.kml / .kmz)
-                <input
-                  type="file"
-                  accept=".kml,.kmz,.xml"
-                  onChange={handleFile2Upload}
-                  className="hidden"
-                />
-              </label>
-              {file2Name && (
-                <div className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
-                  ✓ Cargado: {file2Name} ({parsedBlocksPreview.length} manzanas,{' '}
-                  {parsedPointsPreview.length} casas/puntos)
-                </div>
-              )}
-            </div>
-          </div>
-
-          {importStatusMsg && (
-            <div className="p-4 rounded-xl bg-slate-100 border border-slate-300 font-bold text-sm text-slate-900">
-              {importStatusMsg}
-            </div>
-          )}
-
-          {(parsedTerritoriesPreview.length > 0 ||
-            parsedBlocksPreview.length > 0) && (
-            <div className="border-2 border-emerald-400 bg-emerald-50/40 rounded-2xl p-4 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="font-black text-base text-emerald-950 flex items-center gap-2">
-                  <FolderGit2 className="w-5 h-5 text-emerald-700" />
-                  Vista Previa de Vinculación (Archivo 1 + Archivo 2)
-                </h4>
-
-                <label className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-800 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={replaceExistingOnImport}
-                    onChange={(e) =>
-                      setReplaceExistingOnImport(e.target.checked)
-                    }
-                    className="w-4 h-4"
-                  />
-                  Reemplazar mapas anteriores al guardar
-                </label>
-              </div>
-
-              <button
-                onClick={handleConfirmImport}
-                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base rounded-xl shadow-md cursor-pointer transition"
-              >
-                ✅ Confirmar y Guardar Estos Mapas en la Nube
-              </button>
-            </div>
-          )}
+      
+      {/* MÓDULO EDITOR DE MAPAS (BORDES DE TERRITORIOS Y MANZANAS) */}
+      {activeTab === 'editor' && (
+        <div className="bg-white rounded-2xl border-2 border-slate-200 p-3 sm:p-5 shadow-xs">
+          <MapEditorView
+            territories={db.territories}
+            blocks={db.blocks}
+            onSaveTerritory={onSaveTerritory}
+            onCreateTerritory={onCreateTerritory}
+            onDeleteTerritory={onDeleteTerritory}
+            onSaveBlock={onSaveBlock}
+            onCreateBlock={onCreateBlock}
+            onDeleteBlock={onDeleteBlock}
+          />
         </div>
       )}
 
       {/* MÓDULO 5: AJUSTES Y CONECTOR NUBE */}
       {activeTab === 'ajustes' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
             <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-blue-700" />
@@ -1246,6 +1328,122 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               Guardar Conector
             </button>
           </div>
+        </div>
+
+        {/* Sección Importar Mapas KML dentro de Ajustes */}
+        <div className="mt-8 pt-8 border-t-2 border-slate-200">
+          <h3 className="text-xl font-black text-slate-900 mb-4 flex items-center gap-2">
+            <FileUp className="w-5 h-5 text-blue-700" />
+            Importar o Reemplazar Mapas desde Google My Maps
+          </h3>
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 sm:p-6 space-y-6 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900">
+                Importar los 2 Archivos desde Google My Maps (`.kml` o `.kmz`)
+              </h2>
+              <p className="text-sm text-slate-600 mt-0.5">
+                Suba por separado el <strong>Archivo 1 (Territorios)</strong> y
+                el <strong>Archivo 2 (Manzanas y Casas)</strong>.
+              </p>
+            </div>
+            <button
+              onClick={handleLoadSampleTwoFiles}
+              className="shrink-0 inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 font-extrabold text-xs sm:text-sm cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-600" />
+              Probar con los 2 KML de ejemplo
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-2xl border-2 border-dashed border-blue-400 bg-blue-50/40 p-5 space-y-3">
+              <span className="px-2.5 py-1 rounded-lg bg-blue-700 text-white font-black text-xs uppercase">
+                Archivo 1 • Territorios Individuales
+              </span>
+              <h3 className="font-extrabold text-base text-slate-900">
+                Mapa de Contornos de Territorios (Territorio 1, 2, 3...)
+              </h3>
+              <label className="block w-full py-3 px-4 bg-white hover:bg-blue-50 text-blue-900 border-2 border-blue-300 rounded-xl font-extrabold text-sm text-center cursor-pointer transition">
+                📂 Seleccionar Archivo 1 (.kml / .kmz)
+                <input
+                  type="file"
+                  accept=".kml,.kmz,.xml"
+                  onChange={handleFile1Upload}
+                  className="hidden"
+                />
+              </label>
+              {file1Name && (
+                <div className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
+                  ✓ Cargado: {file1Name} ({parsedTerritoriesPreview.length}{' '}
+                  territorios)
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border-2 border-dashed border-amber-500 bg-amber-50/40 p-5 space-y-3">
+              <span className="px-2.5 py-1 rounded-lg bg-amber-600 text-white font-black text-xs uppercase">
+                Archivo 2 • Manzanas y Casas
+              </span>
+              <h3 className="font-extrabold text-base text-slate-900">
+                Mapa de Manzanas (1A, 1B, 2A...) y Casas Rurales
+              </h3>
+              <label className="block w-full py-3 px-4 bg-white hover:bg-amber-50 text-amber-950 border-2 border-amber-400 rounded-xl font-extrabold text-sm text-center cursor-pointer transition">
+                📂 Seleccionar Archivo 2 (.kml / .kmz)
+                <input
+                  type="file"
+                  accept=".kml,.kmz,.xml"
+                  onChange={handleFile2Upload}
+                  className="hidden"
+                />
+              </label>
+              {file2Name && (
+                <div className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
+                  ✓ Cargado: {file2Name} ({parsedBlocksPreview.length} manzanas,{' '}
+                  {parsedPointsPreview.length} casas/puntos)
+                </div>
+              )}
+            </div>
+          </div>
+
+          {importStatusMsg && (
+            <div className="p-4 rounded-xl bg-slate-100 border border-slate-300 font-bold text-sm text-slate-900">
+              {importStatusMsg}
+            </div>
+          )}
+
+          {(parsedTerritoriesPreview.length > 0 ||
+            parsedBlocksPreview.length > 0) && (
+            <div className="border-2 border-emerald-400 bg-emerald-50/40 rounded-2xl p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="font-black text-base text-emerald-950 flex items-center gap-2">
+                  <FolderGit2 className="w-5 h-5 text-emerald-700" />
+                  Vista Previa de Vinculación (Archivo 1 + Archivo 2)
+                </h4>
+
+                <label className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={replaceExistingOnImport}
+                    onChange={(e) =>
+                      setReplaceExistingOnImport(e.target.checked)
+                    }
+                    className="w-4 h-4"
+                  />
+                  Reemplazar mapas anteriores al guardar
+                </label>
+              </div>
+
+              <button
+                onClick={handleConfirmImport}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-base rounded-xl shadow-md cursor-pointer transition"
+              >
+                ✅ Confirmar y Guardar Estos Mapas en la Nube
+              </button>
+            </div>
+          )}
+        </div>
+        </div>
         </div>
       )}
     </div>

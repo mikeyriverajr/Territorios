@@ -140,7 +140,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     [territoryPoints]
   );
 
-  const [mapStyle, setMapStyle] = useState<'calles' | 'satelite'>('calles');
+  const [mapStyle, setMapStyle] = useState<'calles' | 'satelite'>('satelite');
   const [showInitialBriefing, setShowInitialBriefing] = useState<boolean>(true);
   const [isPickingOnMap, setIsPickingOnMap] = useState<boolean>(false);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
@@ -240,7 +240,8 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     if (!map) return;
 
     const handleMapClick = (e: L.LeafletMouseEvent) => {
-      if (!isPickingOnMap || !activeTerritory) return;
+      if (!activeTerritory) return;
+      setSelectedPointId(null);
       const coords: LatLngTuple = [e.latlng.lat, e.latlng.lng];
       const matchedBlock = findBlockForCoordinates(
         blocks,
@@ -312,21 +313,21 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
         fillOpacity: 0.22,
       }).addTo(group);
 
+      // Tocar dentro de una manzana abre el registro directamente en ese punto
       poly.on('click', (e: L.LeafletMouseEvent) => {
-        if (isPickingOnMap) {
-          L.DomEvent.stopPropagation(e);
-          setIsPickingOnMap(false);
-          setNewPointDraft({
-            lat: e.latlng.lat,
-            lng: e.latlng.lng,
-            blockId: block.id,
-            blockCode: block.code,
-            category: 'no_en_casa',
-            houseNumber: '',
-            selectedChips: [],
-            notes: '',
-          });
-        }
+        L.DomEvent.stopPropagation(e);
+        setIsPickingOnMap(false);
+        setSelectedPointId(null);
+        setNewPointDraft({
+          lat: e.latlng.lat,
+          lng: e.latlng.lng,
+          blockId: block.id,
+          blockCode: block.code,
+          category: 'no_en_casa',
+          houseNumber: '',
+          selectedChips: [],
+          notes: '',
+        });
       });
 
       const centroid = getPolygonCentroid(block.polygon);
@@ -352,54 +353,38 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       );
     });
 
-    territoryPoints.forEach((pt) => {
-      let bg = '#ea580c';
-      let symbol = '🏠';
-      let shortTag = pt.blockCode ? `${pt.blockCode}` : 'No en casa';
+    territoryPoints.forEach((pt, idx) => {
+      // Iconos circulares pequeños (22px) con el número corto para que no se encimen
+      let bg = '#f97316';
+      let label = String(pt.seqNumber ?? idx + 1);
 
       if (pt.category === 'no_visitar') {
         bg = '#dc2626';
-        symbol = '🛑';
-        shortTag = 'NO VISITAR';
-      } else if (pt.category === 'casa_rural') {
-        if (pt.status === 'atendido') {
-          bg = '#16a34a';
-          symbol = '✅';
-          shortTag = 'Visitada';
-        } else if (pt.status === 'no_en_casa') {
-          bg = '#ea580c';
-          symbol = '🏠';
-          shortTag = 'No en casa';
-        } else {
-          bg = '#2563eb';
-          symbol = '🏡';
-          shortTag = 'Pendiente';
-        }
+        label = '!';
       } else if (pt.status === 'atendido') {
         bg = '#16a34a';
-        symbol = '✅';
-        shortTag = 'Atendió';
+        label = '✓';
+      } else if (pt.category === 'casa_rural' && pt.status === 'pendiente') {
+        bg = '#2563eb';
       }
 
       const isSelected = pt.id === selectedPointId;
-      const scaleStyle = isSelected
-        ? 'transform:scale(1.18);z-index:1000;box-shadow:0 0 0 4px #fde047, 0 4px 12px rgba(0,0,0,0.45);'
-        : 'box-shadow:0 3px 8px rgba(0,0,0,0.35);';
+      const ring = isSelected
+        ? 'box-shadow:0 0 0 3px #fde047, 0 2px 8px rgba(0,0,0,0.6);'
+        : 'box-shadow:0 2px 6px rgba(0,0,0,0.6);';
 
       const markerIcon = L.divIcon({
         className: 'custom-house-pin',
-        html: `<div style="background:${bg};color:#ffffff;padding:4px 9px;border-radius:12px;border:2px solid #ffffff;font-weight:800;font-size:12px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer;${scaleStyle}">
-          <span style="font-size:15px;">${symbol}</span>
-          <span>${shortTag}</span>
-        </div>`,
-        iconSize: [90, 32],
-        iconAnchor: [45, 16],
+        html: `<div title="${pt.shortCode || ''}" style="width:22px;height:22px;border-radius:999px;background:${bg};color:#fff;border:2px solid #fff;font-weight:900;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;${ring}">${label}</div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
       });
 
       const marker = L.marker([pt.lat, pt.lng], { icon: markerIcon }).addTo(
         group
       );
-      marker.on('click', () => {
+      marker.on('click', (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e);
         setSelectedPointId(pt.id);
       });
     });
@@ -848,7 +833,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       )}
 
       {/* COLUMNA IZQUIERDA: MAPA INTERACTIVO */}
-      <div className="relative flex-1 flex flex-col h-[56vh] lg:h-full">
+      <div className="relative flex-1 flex flex-col h-[75vh] lg:h-full">
         <div className="bg-white border-b border-slate-200 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 z-10">
           <div className="flex items-center gap-2">
             <button
@@ -952,7 +937,9 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                     : selectedPoint.category === 'casa_rural'
                     ? '🏡 Casa Rural'
                     : '🏠 Casa No en Casa'}
-                  {selectedPoint.blockCode
+                  {selectedPoint.shortCode
+                    ? ` • #${selectedPoint.shortCode}`
+                    : selectedPoint.blockCode
                     ? ` • Manzana ${selectedPoint.blockCode}`
                     : ''}
                 </span>
@@ -1080,7 +1067,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       </div>
 
       {/* PANEL DERECHO DEL CONDUCTOR: COMPLETAR MANZANAS, COMPLETAR TERRITORIO Y LISTA EN LA NUBE */}
-      <div className="w-full lg:w-[420px] bg-white border-t-2 lg:border-t-0 lg:border-l-2 border-slate-200 flex flex-col h-[44vh] lg:h-full overflow-y-auto">
+      <div className="w-full lg:w-[420px] bg-white border-t-2 lg:border-t-0 lg:border-l-2 border-slate-200 flex flex-col lg:h-full overflow-y-auto">
         <div className="p-4 space-y-5">
           {/* 1. CONTROL DE MANZANAS (1A, 1B...) Y COMPLETAR TODO EL TERRITORIO */}
           <div className="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
@@ -1246,11 +1233,9 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        {pt.blockCode && (
-                          <span className="inline-block text-xs font-black px-2 py-0.5 rounded bg-amber-200 text-amber-950 mr-1.5">
-                            Manzana {pt.blockCode}
-                          </span>
-                        )}
+                        <span className="inline-block text-xs font-black px-2 py-0.5 rounded bg-amber-500 text-white mr-1.5">
+                          #{pt.shortCode || pt.blockCode || 'S/N'}
+                        </span>
                         <span className="font-extrabold text-sm text-slate-900">
                           {pt.label}
                         </span>
