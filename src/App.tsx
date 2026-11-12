@@ -30,6 +30,73 @@ import { PublisherLightView } from './components/PublisherLightView';
 import { FieldMapView } from './components/FieldMapView';
 import { AdminDashboard } from './components/AdminDashboard';
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Error no controlado capturado por ErrorBoundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+          <div className="bg-slate-800 border-2 border-red-500 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-4 shadow-2xl text-center">
+            <div className="w-16 h-16 rounded-2xl bg-red-900/60 text-red-400 flex items-center justify-center mx-auto text-3xl">
+              ⚠️
+            </div>
+            <h1 className="text-xl font-black">Se produjo un problema al cargar el panel</h1>
+            <p className="text-xs text-slate-300">
+              El sistema ha evitado que la pantalla quede en blanco.
+            </p>
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-700 text-left font-mono text-xs text-red-300 max-h-40 overflow-y-auto">
+              {this.state.error?.message || 'Error desconocido'}
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  this.setState({ hasError: false, error: null });
+                  window.location.reload();
+                }}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 font-extrabold text-xs rounded-xl cursor-pointer"
+              >
+                Reintentar / Recargar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = window.location.pathname;
+                }}
+                className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                Volver al Inicio
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export const App: React.FC = () => {
   const [db, setDb] = useState<AppDatabase>(() => loadDatabase());
 
@@ -293,25 +360,28 @@ export const App: React.FC = () => {
 
   // ROL 3: Si es un Publicador que entró con el link especial (?grupo=ID), mostrar la vista Ultra-Ligera sin Login
   if (authRole === 'publisher_link') {
+    const slotList = db.schedule || [];
     const slot =
-      db.schedule.find((s) => s.id === publisherSlotId) || db.schedule[0];
+      slotList.find((s) => s.id === publisherSlotId) || slotList[0];
     if (slot) {
       return (
-        <PublisherLightView
-          slot={slot}
-          territories={db.territories}
-          blocks={db.blocks}
-          housePoints={db.housePoints}
-          onAddNotAtHome={(pt) =>
-            handleAddHousePoint(
-              { ...pt, category: 'no_en_casa' },
-              'publicador'
-            )
-          }
-          onMarkHouseVisited={(pointId, newStatus) =>
-            handleUpdateHouseStatus(pointId, newStatus)
-          }
-        />
+        <ErrorBoundary>
+          <PublisherLightView
+            slot={slot}
+            territories={db.territories}
+            blocks={db.blocks}
+            housePoints={db.housePoints}
+            onAddNotAtHome={(pt) =>
+              handleAddHousePoint(
+                { ...pt, category: 'no_en_casa' },
+                'publicador'
+              )
+            }
+            onMarkHouseVisited={(pointId, newStatus) =>
+              handleUpdateHouseStatus(pointId, newStatus)
+            }
+          />
+        </ErrorBoundary>
       );
     }
   }
@@ -319,43 +389,46 @@ export const App: React.FC = () => {
   // Si no ha iniciado sesión, mostrar la pantalla de Login para Conductores y Siervo de Territorios / Admin
   if (!authRole) {
     return (
-      <div className="min-h-screen flex flex-col bg-slate-100">
-        <header className="h-16 bg-slate-900 text-white px-4 sm:px-6 flex items-center justify-between shadow-md">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg">
-              🗺️
+      <ErrorBoundary>
+        <div className="min-h-screen flex flex-col bg-slate-100">
+          <header className="h-16 bg-slate-900 text-white px-4 sm:px-6 flex items-center justify-between shadow-md">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg">
+                🗺️
+              </div>
+              <span className="font-black text-base">{db.congregationName}</span>
             </div>
-            <span className="font-black text-base">{db.congregationName}</span>
-          </div>
-          <div className="text-xs text-slate-300 flex items-center gap-1.5">
-            {isOnline ? (
-              <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
-                <Wifi className="w-3.5 h-3.5" /> Nube Conectada
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-amber-400 font-bold">
-                <WifiOff className="w-3.5 h-3.5" /> Modo Offline
-              </span>
-            )}
-          </div>
-        </header>
+            <div className="text-xs text-slate-300 flex items-center gap-1.5">
+              {isOnline ? (
+                <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+                  <Wifi className="w-3.5 h-3.5" /> Nube Conectada
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-amber-400 font-bold">
+                  <WifiOff className="w-3.5 h-3.5" /> Modo Offline
+                </span>
+              )}
+            </div>
+          </header>
 
-        <LoginView
-          congregationName={db.congregationName}
-          adminPin={db.adminPin}
-          conductors={db.conductors}
-          onLoginSuccess={(role, conductor) => {
-            setAuthRole(role);
-            setLoggedConductor(conductor || null);
-            setMapOpenForTerritoryId(null);
-          }}
-        />
-      </div>
+          <LoginView
+            congregationName={db.congregationName}
+            adminPin={db.adminPin}
+            conductors={db.conductors}
+            onLoginSuccess={(role, conductor) => {
+              setAuthRole(role);
+              setLoggedConductor(conductor || null);
+              setMapOpenForTerritoryId(null);
+            }}
+          />
+        </div>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100">
+    <ErrorBoundary>
+      <div className="min-h-screen flex flex-col bg-slate-100">
       <header className="h-16 bg-slate-900 text-white px-3 sm:px-6 flex items-center justify-between shadow-md z-30 shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg">
@@ -663,6 +736,7 @@ export const App: React.FC = () => {
         )}
       </main>
     </div>
-  );
+  </ErrorBoundary>
+);
 };
 export default App;
