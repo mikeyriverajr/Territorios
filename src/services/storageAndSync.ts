@@ -365,21 +365,48 @@ export function getDemoDatabase(): AppDatabase {
   };
 }
 
+/**
+ * Asegura que una base de datos deserializada tenga todas sus colecciones como arrays válidos
+ */
+export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
+  const blank = getBlankLiveDatabase();
+  return {
+    ...blank,
+    ...parsed,
+    isConfigured: parsed.isConfigured ?? false,
+    congregationName: parsed.congregationName || '',
+    adminPin: parsed.adminPin || '',
+    conductors: Array.isArray(parsed.conductors) ? parsed.conductors : [],
+    territories: Array.isArray(parsed.territories) ? parsed.territories : [],
+    blocks: Array.isArray(parsed.blocks) ? parsed.blocks : [],
+    housePoints: Array.isArray(parsed.housePoints) ? parsed.housePoints : [],
+    schedule: Array.isArray(parsed.schedule)
+      ? parsed.schedule.map((s) => ({
+          ...s,
+          territoryIds: Array.isArray(s?.territoryIds) ? s.territoryIds : [],
+        }))
+      : [],
+    notificationTemplates:
+      Array.isArray(parsed.notificationTemplates) && parsed.notificationTemplates.length > 0
+        ? parsed.notificationTemplates
+        : getDefaultNotificationTemplates(),
+    pushNotifications: Array.isArray(parsed.pushNotifications)
+      ? parsed.pushNotifications
+      : [],
+    s13History: Array.isArray(parsed.s13History) ? parsed.s13History : [],
+    offlineQueue: Array.isArray(parsed.offlineQueue) ? parsed.offlineQueue : [],
+    lastUpdated: parsed.lastUpdated || new Date().toISOString(),
+  };
+}
+
 export function loadDatabase(): AppDatabase {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      const blank = getBlankLiveDatabase();
-      return blank;
+      return getBlankLiveDatabase();
     }
-    const parsed = JSON.parse(raw) as AppDatabase;
-    if (!parsed.notificationTemplates) {
-      return {
-        ...parsed,
-        notificationTemplates: getDefaultNotificationTemplates(),
-      };
-    }
-    return parsed;
+    const parsed = JSON.parse(raw) as Partial<AppDatabase>;
+    return sanitizeDatabase(parsed);
   } catch {
     return getBlankLiveDatabase();
   }
@@ -447,7 +474,7 @@ export async function fetchCloudDatabase(): Promise<AppDatabase | null> {
       if (res.ok) {
         const rows = await res.json();
         if (Array.isArray(rows) && rows[0]?.payload) {
-          const remoteDb = rows[0].payload as AppDatabase;
+          const remoteDb = sanitizeDatabase(rows[0].payload as AppDatabase);
           localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteDb));
           return remoteDb;
         }
@@ -459,8 +486,9 @@ export async function fetchCloudDatabase(): Promise<AppDatabase | null> {
     if (!res.ok) return null;
     const data = (await res.json()) as AppDatabase | null;
     if (data && data.isConfigured) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      return data;
+      const sanitized = sanitizeDatabase(data);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+      return sanitized;
     }
     return null;
   } catch {

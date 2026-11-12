@@ -23,12 +23,17 @@ export function getPublisherGroupLink(slotId: string): string {
  * Formatea una salida individual exactamente con la plantilla requerida para WhatsApp
  */
 export function formatScheduleSlotMessage(slot: ScheduleSlot): string {
-  const dayLabel = slot.dayOfWeek || slot.dayName;
+  if (!slot) return '';
+  const dayLabel = slot.dayOfWeek || slot.dayName || 'Día por definir';
+  const time = slot.time || '00:00';
+  const conductor = slot.conductorName || 'Por asignar';
+  const location = slot.meetingPointName || 'Por asignar';
+  const url = slot.meetingPointUrl || '';
   return [
-    `🔹 ${dayLabel} - ${slot.time} hs`,
-    `👤 Encargado: ${slot.conductorName}`,
-    `📍 Ubicación: ${slot.meetingPointName}`,
-    `🗺️ Punto de Encuentro: ${slot.meetingPointUrl}`,
+    `🔹 ${dayLabel} - ${time} hs`,
+    `👤 Encargado: ${conductor}`,
+    `📍 Ubicación: ${location}`,
+    `🗺️ Punto de Encuentro: ${url}`,
   ].join('\n');
 }
 
@@ -36,15 +41,16 @@ export function formatScheduleSlotMessage(slot: ScheduleSlot): string {
  * Construye el mensaje completo del Programa Semanal de Predicación para que el Admin lo comparta por WhatsApp con 1 botón
  */
 export function buildWeeklyScheduleWhatsAppMessage(
-  _congregationName: string,
-  schedule: ScheduleSlot[],
+  _congregationName?: string,
+  schedule?: ScheduleSlot[],
   _territories?: Territory[]
 ): string {
-  if (schedule.length === 0) {
+  const safeList = Array.isArray(schedule) ? schedule.filter(Boolean) : [];
+  if (safeList.length === 0) {
     return 'No hay salidas programadas.';
   }
 
-  return schedule.map(formatScheduleSlotMessage).join('\n\n');
+  return safeList.map(formatScheduleSlotMessage).filter(Boolean).join('\n\n');
 }
 
 export function openWhatsAppShare(text: string): void {

@@ -49,6 +49,7 @@ import {
 import {
   CloudSyncConfig,
   loadCloudConfig,
+  sanitizeDatabase,
   saveCloudConfig,
 } from '../services/storageAndSync';
 import { MapEditorView } from './MapEditorView';
@@ -117,7 +118,7 @@ interface AdminDashboardProps {
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
-  db,
+  db: rawDb,
   onOpenTerritoryInMap,
   onImportMapsData,
   onAddConductor,
@@ -139,6 +140,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onRestoreFullBackup,
   onLaunchStartupWizard,
 }) => {
+  const db = useMemo(() => sanitizeDatabase(rawDb || {}), [rawDb]);
+
   const [activeTab, setActiveTab] = useState<
     'programa' | 'notificaciones' | 'nube_s13' | 'editor' | 'ajustes'
   >('programa');
@@ -271,8 +274,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         url: '',
       },
     ];
-    const fromSchedule = db.schedule
-      .filter((s) => s.meetingPointName && s.meetingPointName.trim())
+    const fromSchedule = (db.schedule || [])
+      .filter((s) => s && s.meetingPointName && s.meetingPointName.trim())
       .map((s) => ({
         name: s.meetingPointName.trim(),
         url: s.meetingPointUrl?.trim() || '',
@@ -289,9 +292,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return Array.from(locMap.entries()).map(([name, url]) => ({ name, url }));
   }, [db.schedule]);
 
-  const sortedSchedule = [...db.schedule].sort((a, b) =>
-    `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)
-  );
+  const sortedSchedule = useMemo(() => {
+    return [...(db.schedule || [])]
+      .filter(Boolean)
+      .sort((a, b) =>
+        `${a?.date || ''} ${a?.time || ''}`.localeCompare(
+          `${b?.date || ''} ${b?.time || ''}`
+        )
+      );
+  }, [db.schedule]);
 
   const handleCopyWeeklyScheduleText = async () => {
     const text = buildWeeklyScheduleWhatsAppMessage(
@@ -876,8 +885,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="space-y-3">
                 {sortedSchedule.map((slot) => {
-                  const terrNames = db.territories
-                    .filter((t) => slot.territoryIds.includes(t.id))
+                  const safeTerritoryIds = Array.isArray(slot?.territoryIds) ? slot.territoryIds : [];
+                  const terrNames = (db.territories || [])
+                    .filter((t) => safeTerritoryIds.includes(t.id))
                     .map((t) => t.name)
                     .join(', ');
 
@@ -952,10 +962,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <Edit3 className="w-3.5 h-3.5" />
                           <span>Editar</span>
                         </button>
-                        {slot.territoryIds[0] && (
+                        {safeTerritoryIds[0] && (
                           <button
                             type="button"
-                            onClick={() => onOpenTerritoryInMap(slot.territoryIds[0])}
+                            onClick={() => onOpenTerritoryInMap(safeTerritoryIds[0])}
                             className="px-2.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs flex items-center gap-1 cursor-pointer"
                           >
                             <Map className="w-3.5 h-3.5" />
