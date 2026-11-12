@@ -281,15 +281,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         url: s.meetingPointUrl?.trim() || '',
       }));
 
-    const locMap = new Map<string, string>();
+    // Nota: "Map" está sombreado por el ícono de lucide-react, por eso se usa un objeto simple
+    const locMap: Record<string, string> = {};
     for (const item of [...defaults, ...fromSchedule]) {
-      if (!locMap.has(item.name)) {
-        locMap.set(item.name, item.url);
-      } else if (!locMap.get(item.name) && item.url) {
-        locMap.set(item.name, item.url);
+      if (!(item.name in locMap)) {
+        locMap[item.name] = item.url;
+      } else if (!locMap[item.name] && item.url) {
+        locMap[item.name] = item.url;
       }
     }
-    return Array.from(locMap.entries()).map(([name, url]) => ({ name, url }));
+    return Object.keys(locMap).map((name) => ({ name, url: locMap[name] }));
   }, [db.schedule]);
 
   const sortedSchedule = useMemo(() => {
