@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Edit3,
   Save,
@@ -7,6 +7,7 @@ import {
   Calendar,
   CheckCircle2,
   Cloud,
+  Copy,
   Download,
   FileSpreadsheet,
   FileUp,
@@ -38,6 +39,8 @@ import {
 } from '../services/kmlImporter';
 import {
   buildWeeklyScheduleWhatsAppMessage,
+  copyTextToClipboard,
+  formatScheduleSlotMessage,
   getGoogleMapsNavigationUrl,
   openWhatsAppShare,
   renderPushTemplate,
@@ -254,17 +257,127 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     resetSlotForm();
   };
 
+  const [copiedScheduleToast, setCopiedScheduleToast] = useState<string | null>(null);
+
+  // Lugares habituales guardados para autocompletar con 1 clic
+  const savedLocations = useMemo(() => {
+    const defaults = [
+      {
+        name: 'Arroyo Porã',
+        url: 'https://maps.app.goo.gl/GFt712zxPGqS6JVy6',
+      },
+      {
+        name: 'Salón del Reino',
+        url: '',
+      },
+    ];
+    const fromSchedule = db.schedule
+      .filter((s) => s.meetingPointName && s.meetingPointName.trim())
+      .map((s) => ({
+        name: s.meetingPointName.trim(),
+        url: s.meetingPointUrl?.trim() || '',
+      }));
+
+    const locMap = new Map<string, string>();
+    for (const item of [...defaults, ...fromSchedule]) {
+      if (!locMap.has(item.name)) {
+        locMap.set(item.name, item.url);
+      } else if (!locMap.get(item.name) && item.url) {
+        locMap.set(item.name, item.url);
+      }
+    }
+    return Array.from(locMap.entries()).map(([name, url]) => ({ name, url }));
+  }, [db.schedule]);
+
   const sortedSchedule = [...db.schedule].sort((a, b) =>
     `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)
   );
 
-  const handleShareWeeklyScheduleWhatsApp = () => {
+  const handleCopyWeeklyScheduleText = async () => {
     const text = buildWeeklyScheduleWhatsAppMessage(
       db.congregationName,
       sortedSchedule,
       db.territories
     );
+    await copyTextToClipboard(text);
+    setCopiedScheduleToast('📋 ¡Programa semanal copiado! Listo para pegar en WhatsApp');
+    setTimeout(() => setCopiedScheduleToast(null), 3500);
+  };
+
+  const handleShareWeeklyScheduleWhatsApp = async () => {
+    const text = buildWeeklyScheduleWhatsAppMessage(
+      db.congregationName,
+      sortedSchedule,
+      db.territories
+    );
+    await copyTextToClipboard(text);
     openWhatsAppShare(text);
+  };
+
+  const handleShareSingleSlot = async (slot: ScheduleSlot) => {
+    const text = formatScheduleSlotMessage(slot);
+    await copyTextToClipboard(text);
+    openWhatsAppShare(text);
+  };
+
+  const handleCopySingleSlotText = async (slot: ScheduleSlot) => {
+    const text = formatScheduleSlotMessage(slot);
+    await copyTextToClipboard(text);
+    setCopiedScheduleToast(`📋 Salida de ${slot.dayName} copiada con emoticonos`);
+    setTimeout(() => setCopiedScheduleToast(null), 3500);
+  };
+
+  const handleDuplicateSlot = (slot: ScheduleSlot) => {
+    let nextDate = slot.date;
+    try {
+      const d = new Date(slot.date + 'T12:00:00');
+      d.setDate(d.getDate() + 7);
+      nextDate = d.toISOString().slice(0, 10);
+    } catch {
+      // fallback
+    }
+    setEditingSlotId(null);
+    setSlotDate(nextDate);
+    setDayOfWeek(slot.dayOfWeek || dayOfWeekFromDate(nextDate));
+    const shift = slot.dayName.replace(slot.dayOfWeek || '', '').trim();
+    setShiftLabel(shift || 'Mañana');
+    setTime(slot.time);
+    setSelectedConductorId(slot.conductorId);
+    setMeetingPointName(slot.meetingPointName);
+    setMeetingPointUrl(slot.meetingPointUrl);
+    setSelectedTerritoryIds(slot.territoryIds);
+    setSlotNotes(slot.notes || '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setCopiedScheduleToast(`📋 Salida clonada (+7 días: ${nextDate}). Modifique los datos y pulse Publicar Salida`);
+    setTimeout(() => setCopiedScheduleToast(null), 4000);
+  };
+
+  const handleDuplicateWholeWeek = () => {
+    if (sortedSchedule.length === 0) return;
+    sortedSchedule.forEach((slot) => {
+      let nextDate = slot.date;
+      try {
+        const d = new Date(slot.date + 'T12:00:00');
+        d.setDate(d.getDate() + 7);
+        nextDate = d.toISOString().slice(0, 10);
+      } catch {
+        // fallback
+      }
+      onAddScheduleSlot({
+        dayName: slot.dayName,
+        dayOfWeek: slot.dayOfWeek,
+        date: nextDate,
+        time: slot.time,
+        conductorId: slot.conductorId,
+        conductorName: slot.conductorName,
+        meetingPointName: slot.meetingPointName,
+        meetingPointUrl: slot.meetingPointUrl,
+        territoryIds: slot.territoryIds,
+        notes: slot.notes,
+      });
+    });
+    setCopiedScheduleToast(`✅ ${sortedSchedule.length} salidas duplicadas para la próxima semana (+7 días)`);
+    setTimeout(() => setCopiedScheduleToast(null), 4000);
   };
 
   const handleDispatchPushFromTemplate = async (
@@ -540,7 +653,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Conductor:
+                    Encargado:
                   </label>
                   <select
                     value={selectedConductorId}
@@ -549,7 +662,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     required
                   >
                     <option value="" disabled>
-                      Elegir conductor...
+                      Elegir encargado...
                     </option>
                     {db.conductors.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -559,21 +672,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Punto de Encuentro:
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-extrabold uppercase text-slate-600">
+                      Ubicación:
+                    </label>
+                    {savedLocations.length > 0 && (
+                      <select
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val) return;
+                          const found = savedLocations.find((l) => l.name === val);
+                          if (found) {
+                            setMeetingPointName(found.name);
+                            if (found.url) setMeetingPointUrl(found.url);
+                          }
+                          e.target.value = '';
+                        }}
+                        className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 cursor-pointer"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>📍 Lugares habituales...</option>
+                        {savedLocations.map((loc) => (
+                          <option key={loc.name} value={loc.name}>
+                            {loc.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={meetingPointName}
                     onChange={(e) => setMeetingPointName(e.target.value)}
-                    placeholder="Ej. Plaza Primera Junta"
+                    placeholder="Ej. Arroyo Porã"
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
                     required
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Link Google Maps:
+                    Punto de Encuentro (Link Maps):
                   </label>
                   <input
                     type="text"
@@ -681,76 +819,191 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
             </form>
 
-            {/* Programa semanal publicado */}
-            <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-black text-lg text-slate-900">
-                  Programa Semanal ({sortedSchedule.length})
-                </h3>
-                <button
-                  onClick={handleShareWeeklyScheduleWhatsApp}
-                  disabled={sortedSchedule.length === 0}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <Share2 className="w-4 h-4" />
-                  Compartir Programa por WhatsApp
-                </button>
+            {/* Notificación de copiado / acción */}
+            {copiedScheduleToast && (
+              <div className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-md">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{copiedScheduleToast}</span>
               </div>
-              <div className="space-y-2.5">
-                {sortedSchedule.map((slot) => (
-                  <div
-                    key={slot.id}
-                    className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
-                      editingSlotId === slot.id
-                        ? 'bg-amber-50 border-amber-300'
-                        : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-extrabold text-sm sm:text-base text-slate-900">
-                        {slot.dayName} {slot.date ? `(${slot.date})` : ''} —{' '}
-                        {slot.time} hs
-                      </div>
-                      <div className="text-xs text-slate-600">
-                        👤 {slot.conductorName} | 📍 {slot.meetingPointName} |{' '}
-                        {db.territories
-                          .filter((t) => slot.territoryIds.includes(t.id))
-                          .map((t) => t.name)
-                          .join(', ')}
-                      </div>
-                    </div>
+            )}
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleStartEditSlot(slot)}
-                        className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs flex items-center gap-1 cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        Editar
-                      </button>
-                      {slot.territoryIds[0] && (
-                        <button
-                          onClick={() => onOpenTerritoryInMap(slot.territoryIds[0])}
-                          className="px-3 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-900 font-bold text-xs flex items-center gap-1 cursor-pointer"
-                        >
-                          <Map className="w-3.5 h-3.5" />
-                          Mapa
-                        </button>
-                      )}
-                      <button
-                        onClick={() => {
-                          if (editingSlotId === slot.id) resetSlotForm();
-                          onDeleteScheduleSlot(slot.id);
-                        }}
-                        className="p-2 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 cursor-pointer"
-                        title="Eliminar salida"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+            {/* Programa semanal publicado */}
+            <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+                <div>
+                  <h3 className="font-black text-lg text-slate-900">
+                    Programa Semanal ({sortedSchedule.length})
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Mensaje con formato y emoticonos listos para WhatsApp.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {sortedSchedule.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleDuplicateWholeWeek}
+                      className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer border border-slate-300 transition"
+                      title="Clonar todas las salidas para la próxima semana (+7 días)"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Duplicar Semana (+7 días)</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleCopyWeeklyScheduleText}
+                    disabled={sortedSchedule.length === 0}
+                    className="px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 disabled:opacity-50 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copiar Mensaje</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleShareWeeklyScheduleWhatsApp}
+                    disabled={sortedSchedule.length === 0}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer shadow-xs transition"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    <span>Abrir en WhatsApp</span>
+                  </button>
+                </div>
               </div>
+
+              <div className="space-y-3">
+                {sortedSchedule.map((slot) => {
+                  const terrNames = db.territories
+                    .filter((t) => slot.territoryIds.includes(t.id))
+                    .map((t) => t.name)
+                    .join(', ');
+
+                  return (
+                    <div
+                      key={slot.id}
+                      className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
+                        editingSlotId === slot.id
+                          ? 'bg-amber-50 border-amber-300'
+                          : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-1.5">
+                          <span>🔹</span>
+                          <span>
+                            {slot.dayOfWeek || slot.dayName} {slot.date ? `(${slot.date})` : ''} - {slot.time} hs
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-700 space-y-0.5">
+                          <div>👤 <strong>Encargado:</strong> {slot.conductorName}</div>
+                          <div>📍 <strong>Ubicación:</strong> {slot.meetingPointName}</div>
+                          {slot.meetingPointUrl && (
+                            <div className="text-[11px] text-blue-700 truncate max-w-md">
+                              🗺️ <strong>Punto de Encuentro:</strong>{' '}
+                              <a href={slot.meetingPointUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                                {slot.meetingPointUrl}
+                              </a>
+                            </div>
+                          )}
+                          {terrNames && (
+                            <div className="text-[11px] text-slate-500">
+                              🧭 Territorio(s): {terrNames}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleCopySingleSlotText(slot)}
+                          className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                          title="Copiar texto de esta salida para WhatsApp"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-500" />
+                          <span>Copiar</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleShareSingleSlot(slot)}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                          title="Enviar esta salida individual a WhatsApp"
+                        >
+                          <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>WhatsApp</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateSlot(slot)}
+                          className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                          title="Clonar salida para la próxima semana (+7 días)"
+                        >
+                          <Plus className="w-3.5 h-3.5 text-blue-600" />
+                          <span>Duplicar</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditSlot(slot)}
+                          className="px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Editar</span>
+                        </button>
+                        {slot.territoryIds[0] && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenTerritoryInMap(slot.territoryIds[0])}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                          >
+                            <Map className="w-3.5 h-3.5" />
+                            <span>Mapa</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editingSlotId === slot.id) resetSlotForm();
+                            onDeleteScheduleSlot(slot.id);
+                          }}
+                          className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 cursor-pointer"
+                          title="Eliminar salida"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Vista previa en vivo del texto tal cual se enviará a WhatsApp */}
+              {sortedSchedule.length > 0 && (
+                <div className="bg-slate-50 border border-slate-300 rounded-2xl p-4 space-y-2 mt-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      💬 Vista previa del mensaje de WhatsApp:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyWeeklyScheduleText}
+                      className="text-xs font-extrabold px-2.5 py-1 bg-white hover:bg-blue-50 text-blue-800 rounded-lg border border-blue-200 flex items-center gap-1 cursor-pointer shadow-2xs"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      Copiar todo
+                    </button>
+                  </div>
+                  <div className="text-xs font-mono bg-white p-3.5 rounded-xl border border-slate-200 whitespace-pre-wrap text-slate-800 select-all leading-relaxed shadow-inner">
+                    {buildWeeklyScheduleWhatsAppMessage(
+                      db.congregationName,
+                      sortedSchedule,
+                      db.territories
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

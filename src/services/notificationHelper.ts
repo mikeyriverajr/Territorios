@@ -20,51 +20,65 @@ export function getPublisherGroupLink(slotId: string): string {
 }
 
 /**
+ * Formatea una salida individual exactamente con la plantilla requerida para WhatsApp
+ */
+export function formatScheduleSlotMessage(slot: ScheduleSlot): string {
+  const dayLabel = slot.dayOfWeek || slot.dayName;
+  return [
+    `🔹 ${dayLabel} - ${slot.time} hs`,
+    `👤 Encargado: ${slot.conductorName}`,
+    `📍 Ubicación: ${slot.meetingPointName}`,
+    `🗺️ Punto de Encuentro: ${slot.meetingPointUrl}`,
+  ].join('\n');
+}
+
+/**
  * Construye el mensaje completo del Programa Semanal de Predicación para que el Admin lo comparta por WhatsApp con 1 botón
  */
 export function buildWeeklyScheduleWhatsAppMessage(
-  congregationName: string,
+  _congregationName: string,
   schedule: ScheduleSlot[],
-  territories: Territory[]
+  _territories?: Territory[]
 ): string {
-  const lines = [
-    `📅 *PROGRAMA SEMANAL DE PREDICACIÓN*`,
-    `🏛️ *${congregationName || 'Congregación'}*`,
-    ``,
-  ];
-
   if (schedule.length === 0) {
-    lines.push(`No hay salidas programadas.`);
-    return lines.join('\n');
+    return 'No hay salidas programadas.';
   }
 
-  schedule.forEach((slot) => {
-    const terrNames =
-      territories
-        .filter((t) => slot.territoryIds.includes(t.id))
-        .map((t) => t.name)
-        .join(', ') || 'Por asignar';
-
-    const dateFormatted = slot.date ? ` (${slot.date})` : '';
-    const dayLabel = slot.dayOfWeek || slot.dayName;
-
-    lines.push(
-      `🔹 *${dayLabel}${dateFormatted} — ${slot.time} hs*`,
-      `👤 *Conductor:* ${slot.conductorName}`,
-      `📍 *Punto de encuentro:* ${slot.meetingPointName}`,
-      `🗺️ *Ubicación Maps:* ${slot.meetingPointUrl}`,
-      `🧭 *Territorio(s):* ${terrNames}` +
-        (slot.notes ? `\n📝 _Nota: ${slot.notes}_` : ''),
-      ``
-    );
-  });
-
-  return lines.join('\n');
+  return schedule.map(formatScheduleSlotMessage).join('\n\n');
 }
 
 export function openWhatsAppShare(text: string): void {
-  const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * Copia texto al portapapeles con compatibilidad nativa y fallback
+ */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Intentar fallback
+  }
+
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    return successful;
+  } catch {
+    return false;
+  }
 }
 
 /**

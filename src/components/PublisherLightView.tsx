@@ -19,7 +19,7 @@ import {
   ScheduleSlot,
   Territory,
 } from '../types/territory';
-import { getPolygonCentroid } from '../services/kmlImporter';
+import { getPolygonCentroid, isPointInPolygon } from '../services/kmlImporter';
 import { findBlockForCoordinates } from '../services/storageAndSync';
 import { getGoogleMapsNavigationUrl } from '../services/notificationHelper';
 
@@ -40,16 +40,6 @@ interface PublisherLightViewProps {
   onMarkHouseVisited: (pointId: string, newStatus: HousePointStatus) => void;
   onExitPreview?: () => void;
 }
-
-const QUICK_CHIPS = [
-  'Casa sin número',
-  'Reja negra',
-  'Portón blanco',
-  'Casa de esquina',
-  'Puerta de madera',
-  '2do piso / Timbre B',
-  'Pasillo al fondo',
-];
 
 export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   slot,
@@ -110,19 +100,20 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     blockId?: string;
     blockCode?: string;
     previewCode: string;
-    houseNumber: string;
-    chips: string[];
-    notes: string;
+    description: string;
   } | null>(null);
 
+  const [isChangingBlock, setIsChangingBlock] = useState<boolean>(false);
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
+  const [userHeading, setUserHeading] = useState<number | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  const hasAutoZoomedRef = useRef<boolean>(false);
 
   const selectedPoint = useMemo(
     () => territoryPoints.find((p) => p.id === selectedPointId) || null,
@@ -150,15 +141,14 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
       explicitBlock ||
       findBlockForCoordinates(blocks, activeTerritory.id, coords);
     const bCode = matchedBlock?.code;
+    setIsChangingBlock(false);
     setFormDraft({
       lat: Number(coords[0].toFixed(6)),
       lng: Number(coords[1].toFixed(6)),
       blockId: matchedBlock?.id,
       blockCode: bCode,
       previewCode: computeNextShortCode(bCode),
-      houseNumber: '',
-      chips: [],
-      notes: '',
+      description: '',
     });
   };
 
@@ -225,6 +215,90 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     const bounds = L.latLngBounds(activeTerritory.polygon);
     mapRef.current.fitBounds(bounds, { padding: [24, 24], maxZoom: 18 });
   }, [activeTerritory?.id]);
+
+  // ACTIVACIÓN AUTOMÁTICA DEL GPS AL ENTRAR Y SEGUIMIENTO CONTINUO
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const coords: LatLngTuple = [pos.coords.latitude, pos.coords.longitude];
+        setUserGps(coords);
+
+        if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
+          setUserHeading(pos.coords.heading);
+        }
+
+        // Auto-zoom a la manzana donde está el publicador al recibir señal GPS
+        if (!hasAutoZoomedRef.current && mapRef.current) {
+          const currentTerrId = activeTerritory?.id || '';
+          let matchedBlock = findBlockForCoordinates(blocks, currentTerrId, coords);
+
+          // Si no está en el territorio activo, buscar en los otros territorios asignados a la salida
+          if (!matchedBlock) {
+            for (const t of assignedTerritories) {
+              if (t.id === currentTerrId) continue;
+              const b = findBlockForCoordinates(blocks, t.id, coords);
+              if (b) {
+                matchedBlock = b;
+                setActiveTerritoryId(t.id);
+                break;
+              }
+            }
+          }
+
+          if (matchedBlock && matchedBlock.polygon.length >= 3) {
+            hasAutoZoomedRef.current = true;
+            mapRef.current.fitBounds(L.latLngBounds(matchedBlock.polygon), {
+              padding: [45, 45],
+              maxZoom: 19,
+            });
+          } else {
+            hasAutoZoomedRef.current = true;
+            mapRef.current.setView(coords, 18);
+          }
+        }
+      },
+      (err) => {
+        console.warn('GPS no disponible o esperando señal:', err);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 4000,
+        timeout: 12000,
+      }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [activeTerritory?.id, assignedTerritories, blocks]);
+
+  // SEGUIMIENTO DE ORIENTACIÓN / BRÚJULA PARA APUNTAR EL HAZ DE DIRECCIÓN
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      // iOS Safari proporciona webkitCompassHeading (0-360 respecto al Norte)
+      if ((e as unknown as { webkitCompassHeading?: number }).webkitCompassHeading !== undefined) {
+        const heading = (e as unknown as { webkitCompassHeading: number }).webkitCompassHeading;
+        if (heading !== null && !isNaN(heading)) {
+          setUserHeading(heading);
+        }
+      } else if (e.alpha !== null && !isNaN(e.alpha)) {
+        // Android / W3C: alpha es rotación en eje Z
+        setUserHeading(360 - e.alpha);
+      }
+    };
+
+    const eventName =
+      'deviceorientationabsolute' in window
+        ? 'deviceorientationabsolute'
+        : 'deviceorientation';
+
+    window.addEventListener(eventName, handleOrientation as EventListener);
+    return () => {
+      window.removeEventListener(eventName, handleOrientation as EventListener);
+    };
+  }, []);
 
   // PRIORIDAD #1: Tocar cualquier parte del mapa abre inmediatamente el registro de "No en casa"
   useEffect(() => {
@@ -315,19 +389,53 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
       });
     });
 
+    // MARCADOR AZUL ESTILO GOOGLE MAPS CON HAZ DE DIRECCIÓN ROTATIVO
     if (userGps) {
+      const beamHtml =
+        userHeading !== null
+          ? `<div style="position:absolute;top:0;left:0;width:64px;height:64px;transform:rotate(${Math.round(
+              userHeading
+            )}deg);transform-origin:32px 32px;pointer-events:none;transition:transform 0.2s ease-out;">
+              <svg width="64" height="64" viewBox="0 0 64 64">
+                <defs>
+                  <radialGradient id="userBeamGrad" cx="50%" cy="100%" r="100%">
+                    <stop offset="0%" stop-color="#2563eb" stop-opacity="0.6"/>
+                    <stop offset="65%" stop-color="#3b82f6" stop-opacity="0.2"/>
+                    <stop offset="100%" stop-color="#60a5fa" stop-opacity="0"/>
+                  </radialGradient>
+                </defs>
+                <path d="M 32 32 L 14 2 A 35 35 0 0 1 50 2 Z" fill="url(#userBeamGrad)" />
+              </svg>
+            </div>`
+          : '';
+
       const gpsIcon = L.divIcon({
-        className: 'custom-gps-dot',
-        html: `<div style="width:16px;height:16px;border-radius:999px;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 5px rgba(37,99,235,0.35);"></div>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
+        className: 'custom-google-maps-gps',
+        html: `<div style="position:relative;width:64px;height:64px;pointer-events:none;">
+          ${beamHtml}
+          <div style="position:absolute;top:20px;left:20px;width:24px;height:24px;border-radius:9999px;background:rgba(37,99,235,0.25);animation:ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+          <div style="position:absolute;top:24px;left:24px;width:16px;height:16px;border-radius:9999px;background:#2563eb;border:2.5px solid #ffffff;box-shadow:0 1px 5px rgba(0,0,0,0.45);"></div>
+        </div>`,
+        iconSize: [64, 64],
+        iconAnchor: [32, 32],
       });
-      L.marker(userGps, { icon: gpsIcon }).addTo(group);
+      L.marker(userGps, { icon: gpsIcon, zIndexOffset: 1000 }).addTo(group);
     }
-  }, [activeTerritory, territoryBlocks, territoryPoints, userGps]);
+  }, [activeTerritory, territoryBlocks, territoryPoints, userGps, userHeading]);
 
   const handleUseMyCurrentGps = () => {
     if (!activeTerritory) return;
+
+    const centerOnCoords = (coords: LatLngTuple) => {
+      setUserGps(coords);
+      mapRef.current?.setView(coords, 19);
+      openDraftAtCoordinates(coords);
+    };
+
+    if (userGps) {
+      centerOnCoords(userGps);
+      return;
+    }
 
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -336,9 +444,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
             pos.coords.latitude,
             pos.coords.longitude,
           ];
-          setUserGps(coords);
-          mapRef.current?.setView(coords, 18);
-          openDraftAtCoordinates(coords);
+          centerOnCoords(coords);
         },
         () => {
           const center = mapRef.current
@@ -358,14 +464,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     e.preventDefault();
     if (!formDraft || !activeTerritory) return;
 
-    const parts: string[] = [];
-    if (formDraft.houseNumber.trim()) {
-      parts.push(formDraft.houseNumber.trim());
-    }
-    if (formDraft.chips.length > 0) {
-      parts.push(formDraft.chips.join(', '));
-    }
-    const label = parts.join(' — ') || 'Casa sin número';
+    const label = formDraft.description.trim() || 'Casa sin número';
 
     onAddNotAtHome({
       territoryId: activeTerritory.id,
@@ -374,25 +473,14 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
       lat: formDraft.lat,
       lng: formDraft.lng,
       label,
-      notes: formDraft.notes.trim() || undefined,
     });
 
     setSavedToast(
       `✅ Guardado ${formDraft.previewCode}: "${label}"`
     );
     setFormDraft(null);
+    setIsChangingBlock(false);
     setTimeout(() => setSavedToast(null), 4000);
-  };
-
-  const toggleChip = (chip: string) => {
-    if (!formDraft) return;
-    const exists = formDraft.chips.includes(chip);
-    setFormDraft({
-      ...formDraft,
-      chips: exists
-        ? formDraft.chips.filter((c) => c !== chip)
-        : [...formDraft.chips, chip],
-    });
   };
 
   return (
@@ -631,44 +719,60 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
                   <span className="text-[11px] font-extrabold uppercase text-amber-800 block">
                     Nuevo "No en Casa"
                   </span>
-                  <h2 className="text-lg font-black text-slate-900 leading-tight">
-                    {formDraft.blockCode
-                      ? `Manzana ${formDraft.blockCode}`
-                      : activeTerritory?.name}
-                  </h2>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <h2 className="text-lg font-black text-slate-900 leading-tight">
+                      {formDraft.blockCode
+                        ? `Manzana ${formDraft.blockCode}`
+                        : activeTerritory?.name}
+                    </h2>
+                    {territoryBlocks.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setIsChangingBlock(!isChangingBlock)}
+                        className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-blue-700 font-extrabold text-xs cursor-pointer border border-slate-300 transition"
+                      >
+                        {isChangingBlock ? 'Cerrar' : 'Cambiar'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setFormDraft(null)}
+                onClick={() => {
+                  setFormDraft(null);
+                  setIsChangingBlock(false);
+                }}
                 className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            {territoryBlocks.length > 0 && (
-              <div>
-                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                  Manzana:
+            {/* Selector de manzana solo visible al pulsar 'Cambiar' */}
+            {isChangingBlock && territoryBlocks.length > 0 && (
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                <label className="block text-xs font-extrabold uppercase text-slate-600">
+                  Seleccionar Manzana:
                 </label>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
                   {territoryBlocks.map((b) => (
                     <button
                       type="button"
                       key={b.id}
-                      onClick={() =>
+                      onClick={() => {
                         setFormDraft({
                           ...formDraft,
                           blockId: b.id,
                           blockCode: b.code,
                           previewCode: computeNextShortCode(b.code),
-                        })
-                      }
+                        });
+                        setIsChangingBlock(false);
+                      }}
                       className={`px-3 py-1 rounded-lg font-extrabold text-xs border cursor-pointer ${
                         formDraft.blockCode === b.code
-                          ? 'bg-blue-700 text-white border-blue-800'
-                          : 'bg-slate-100 text-slate-800 border-slate-200'
+                          ? 'bg-blue-700 text-white border-blue-800 shadow-xs'
+                          : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-100'
                       }`}
                     >
                       {b.code}
@@ -679,49 +783,28 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
             )}
 
             <div>
-              <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                Número de puerta o referencia corta (Opcional):
+              <label className="block text-xs font-extrabold uppercase text-slate-700 mb-1">
+                Descripción de la casa:
               </label>
               <input
                 type="text"
-                value={formDraft.houseNumber}
+                autoFocus
+                value={formDraft.description}
                 onChange={(e) =>
-                  setFormDraft({ ...formDraft, houseNumber: e.target.value })
+                  setFormDraft({ ...formDraft, description: e.target.value })
                 }
-                placeholder="Ej. N° 432..."
-                className="w-full px-3.5 py-2.5 rounded-xl border-2 border-slate-300 focus:border-amber-600 focus:outline-none font-bold text-base"
+                placeholder="Ej. Portón blanco, reja negra, N° 432..."
+                className="w-full px-3.5 py-3 rounded-xl border-2 border-slate-300 focus:border-amber-600 focus:outline-none font-bold text-base"
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1.5">
-                O toque una descripción rápida:
-              </label>
-              <div className="flex flex-wrap gap-1.5">
-                {QUICK_CHIPS.map((chip) => {
-                  const active = formDraft.chips.includes(chip);
-                  return (
-                    <button
-                      type="button"
-                      key={chip}
-                      onClick={() => toggleChip(chip)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer ${
-                        active
-                          ? 'bg-amber-100 border-amber-500 text-amber-950'
-                          : 'bg-slate-100 border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      {active ? `✓ ${chip}` : `+ ${chip}`}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setFormDraft(null)}
+                onClick={() => {
+                  setFormDraft(null);
+                  setIsChangingBlock(false);
+                }}
                 className="w-1/3 py-3 rounded-xl border-2 border-slate-300 font-bold text-slate-700 text-sm cursor-pointer"
               >
                 Cancelar
@@ -730,7 +813,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
                 type="submit"
                 className="w-2/3 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-sm shadow-md cursor-pointer"
               >
-                Guardar #{formDraft.previewCode}
+                Guardar
               </button>
             </div>
           </form>
