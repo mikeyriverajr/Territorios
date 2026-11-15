@@ -489,7 +489,7 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="flex-1">
+      <main className="flex-1 min-h-0">
         {mapOpenForTerritoryId ? (
           <FieldMapView
             territories={db.territories}

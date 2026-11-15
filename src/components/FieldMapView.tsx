@@ -164,7 +164,10 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const currentTileStyleRef = useRef<'calles' | 'satelite' | null>(null);
   const overlaysGroupRef = useRef<L.LayerGroup | null>(null);
+
+  const hasActiveTerritory = Boolean(activeTerritory);
 
   const selectedPoint = useMemo(
     () => territoryPoints.find((p) => p.id === selectedPointId) || null,
@@ -177,7 +180,9 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
   }, [userGps, blocks, activeTerritory]);
 
   useEffect(() => {
-    if (!mapContainerRef.current || mapInstanceRef.current) return;
+    if (!hasActiveTerritory || !mapContainerRef.current || mapInstanceRef.current) {
+      return;
+    }
 
     const initialCenter: LatLngTuple = activeTerritory?.polygon?.length
       ? getPolygonCentroid(activeTerritory.polygon)
@@ -191,29 +196,66 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
     L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
-    const tileLayer = L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap',
-      }
+    const tileLayer = (
+      mapStyle === 'satelite'
+        ? L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+              maxZoom: 19,
+              attribution: '© Esri Satellite',
+            }
+          )
+        : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap',
+          })
     ).addTo(map);
 
     const overlays = L.layerGroup().addTo(map);
 
     mapInstanceRef.current = map;
     tileLayerRef.current = tileLayer;
+    currentTileStyleRef.current = mapStyle;
     overlaysGroupRef.current = overlays;
 
+    const containerEl = mapContainerRef.current;
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            map.invalidateSize();
+          })
+        : null;
+    resizeObserver?.observe(containerEl);
+
+    const rafId = requestAnimationFrame(() => {
+      map.invalidateSize();
+    });
+
     return () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
       map.remove();
       mapInstanceRef.current = null;
+      tileLayerRef.current = null;
+      currentTileStyleRef.current = null;
+      overlaysGroupRef.current = null;
     };
-  }, []);
+  }, [hasActiveTerritory]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !tileLayerRef.current) return;
+    if (!map) return;
+    const rafId = requestAnimationFrame(() => {
+      map.invalidateSize();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [showInitialBriefing]);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !tileLayerRef.current || currentTileStyleRef.current === mapStyle) {
+      return;
+    }
 
     map.removeLayer(tileLayerRef.current);
 
@@ -233,6 +275,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
     newTileLayer.addTo(map);
     tileLayerRef.current = newTileLayer;
+    currentTileStyleRef.current = mapStyle;
   }, [mapStyle]);
 
   useEffect(() => {
@@ -269,10 +312,23 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !activeTerritory || activeTerritory.polygon.length === 0) return;
-    const bounds = L.latLngBounds(activeTerritory.polygon);
+    if (!map || !activeTerritory) return;
+
+    const coordsToFit: LatLngTuple[] =
+      activeTerritory.polygon.length > 0
+        ? activeTerritory.polygon
+        : [
+            ...territoryBlocks.flatMap((b) => b.polygon),
+            ...territoryPoints.map((p): LatLngTuple => [p.lat, p.lng]),
+          ];
+
+    if (coordsToFit.length === 0) return;
+    const bounds = L.latLngBounds(coordsToFit);
+    if (!bounds.isValid()) return;
+
+    map.invalidateSize();
     map.fitBounds(bounds, { padding: [32, 32], maxZoom: 17 });
-  }, [activeTerritory?.id]);
+  }, [activeTerritory?.id, hasActiveTerritory]);
 
   useEffect(() => {
     const group = overlaysGroupRef.current;
@@ -464,9 +520,11 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     const targetBlock =
       territoryBlocks.find((b) => b.status !== 'completada') ||
       territoryBlocks[0];
-    const baseCenter = targetBlock
+    const baseCenter: LatLngTuple = targetBlock?.polygon?.length
       ? getPolygonCentroid(targetBlock.polygon)
-      : getPolygonCentroid(activeTerritory.polygon);
+      : activeTerritory.polygon.length
+      ? getPolygonCentroid(activeTerritory.polygon)
+      : [-34.612, -58.443];
 
     const offsetLat = (Math.random() - 0.5) * 0.0006;
     const offsetLng = (Math.random() - 0.5) * 0.0006;
@@ -556,10 +614,31 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     setTimeout(() => setCopiedPublisherLink(false), 3000);
   };
 
-  if (!activeTerritory) return null;
+  if (!activeTerritory) {
+    return (
+      <div className="min-h-[calc(100vh-64px)] bg-slate-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 max-w-md w-full text-center space-y-4 shadow-sm">
+          <div className="text-lg font-black text-slate-900">
+            No hay territorios disponibles para mostrar en el mapa
+          </div>
+          <p className="text-sm text-slate-600">
+            Verifique que existan territorios cargados en la congregación o
+            vuelva al panel de salidas.
+          </p>
+          <button
+            onClick={onBack}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold text-sm cursor-pointer"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Mis Salidas
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col lg:flex-row h-[calc(100vh-64px)] bg-slate-100 overflow-hidden">
+    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] bg-slate-100 lg:overflow-hidden">
       {/* MODAL DE AVISO INICIAL AL ABRIR EL TERRITORIO (Muestra NO VISITAR y No en Casa en la Nube) */}
       {showInitialBriefing && (
         <div className="fixed inset-0 z-[2000] bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5">
@@ -833,7 +912,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       )}
 
       {/* COLUMNA IZQUIERDA: MAPA INTERACTIVO */}
-      <div className="relative flex-1 flex flex-col h-[75vh] lg:h-full">
+      <div className="relative h-[68vh] sm:h-[72vh] shrink-0 lg:h-full lg:flex-1 lg:min-w-0 lg:min-h-0 flex flex-col">
         <div className="bg-white border-b border-slate-200 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 z-10">
           <div className="flex items-center gap-2">
             <button
@@ -916,7 +995,10 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
           </div>
         )}
 
-        <div ref={mapContainerRef} className="flex-1 w-full z-0" />
+        <div
+          ref={mapContainerRef}
+          className="flex-1 min-h-[260px] lg:min-h-0 w-full z-0 bg-slate-900"
+        />
 
         {/* Tarjeta flotante al tocar un pin en el mapa */}
         {selectedPoint && (
@@ -1067,7 +1149,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       </div>
 
       {/* PANEL DERECHO DEL CONDUCTOR: COMPLETAR MANZANAS, COMPLETAR TERRITORIO Y LISTA EN LA NUBE */}
-      <div className="w-full lg:w-[420px] bg-white border-t-2 lg:border-t-0 lg:border-l-2 border-slate-200 flex flex-col lg:h-full overflow-y-auto">
+      <div className="w-full lg:w-[420px] shrink-0 bg-white border-t-2 lg:border-t-0 lg:border-l-2 border-slate-200 flex flex-col lg:h-full lg:overflow-y-auto">
         <div className="p-4 space-y-5">
           {/* 1. CONTROL DE MANZANAS (1A, 1B...) Y COMPLETAR TODO EL TERRITORIO */}
           <div className="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
