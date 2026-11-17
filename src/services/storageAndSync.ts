@@ -24,7 +24,10 @@ export interface CloudSyncConfig {
 }
 
 export function getEnvCloudConfig(): CloudSyncConfig {
-  const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  const envUrl = (
+    import.meta.env.VITE_SUPABASE_URL ||
+    'https://dhfouiudukuehkrynher.supabase.co'
+  ).trim();
   const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
   const envCongId =
     (import.meta.env.VITE_CONGREGATION_ID || 'main').trim() || 'main';
@@ -791,4 +794,162 @@ export function saveCloudConfig(cfg: CloudSyncConfig): void {
       congregationId: (cfg.congregationId || 'main').trim() || 'main',
     })
   );
+}
+
+export const CONGREGATION_STATE_SQL = `create table if not exists public.congregation_state (
+  id text primary key,
+  payload jsonb not null,
+  updated_at timestamptz default now()
+);
+
+alter table public.congregation_state enable row level security;
+
+drop policy if exists "Allow anon read congregation_state" on public.congregation_state;
+create policy "Allow anon read congregation_state"
+  on public.congregation_state
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "Allow anon insert congregation_state" on public.congregation_state;
+create policy "Allow anon insert congregation_state"
+  on public.congregation_state
+  for insert
+  to anon, authenticated
+  with check (true);
+
+drop policy if exists "Allow anon update congregation_state" on public.congregation_state;
+create policy "Allow anon update congregation_state"
+  on public.congregation_state
+  for update
+  to anon, authenticated
+  using (true)
+  with check (true);`;
+
+export interface SupabaseConnectResult {
+  status: 'loaded' | 'empty' | 'missing_table' | 'error';
+  db?: AppDatabase;
+  message: string;
+  existingTables?: string[];
+}
+
+export async function connectAndFetchFromSupabase(
+  cfg: CloudSyncConfig
+): Promise<SupabaseConnectResult> {
+  const cleanUrl = cfg.supabaseUrl.trim().replace(/\/$/, '');
+  const cleanKey = cfg.supabaseAnonKey.trim();
+  const rowId = getSupabaseRowId(cfg);
+
+  if (!cleanUrl || !cleanKey) {
+    return {
+      status: 'error',
+      message: '❌ Ingrese Supabase Project URL y Anon Key.',
+    };
+  }
+
+  saveCloudConfig({
+    supabaseUrl: cleanUrl,
+    supabaseAnonKey: cleanKey,
+    enabled: true,
+    congregationId: rowId,
+  });
+
+  const fetchExistingTables = async (): Promise<string[]> => {
+    try {
+      const schemaRes = await fetch(`${cleanUrl}/rest/v1/`, {
+        headers: {
+          apikey: cleanKey,
+          Authorization: `Bearer ${cleanKey}`,
+        },
+        cache: 'no-store',
+      });
+      if (!schemaRes.ok) return [];
+      const spec = (await schemaRes.json()) as {
+        paths?: Record<string, unknown>;
+      };
+      if (!spec?.paths) return [];
+      return Object.keys(spec.paths)
+        .map((p) => p.replace(/^\//, ''))
+        .filter((name) => Boolean(name) && !name.startsWith('rpc/'));
+    } catch {
+      return [];
+    }
+  };
+
+  try {
+    const res = await fetch(
+      `${cleanUrl}/rest/v1/congregation_state?id=eq.${encodeURIComponent(
+        rowId
+      )}&select=payload`,
+      {
+        headers: {
+          apikey: cleanKey,
+          Authorization: `Bearer ${cleanKey}`,
+        },
+        cache: 'no-store',
+      }
+    );
+
+    if (res.ok) {
+      const rows = (await res.json()) as Array<{ payload?: AppDatabase }>;
+      if (Array.isArray(rows) && rows[0]?.payload) {
+        const remoteDb = sanitizeDatabase({
+          ...rows[0].payload,
+          isConfigured: true,
+        });
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteDb));
+        } catch {
+          // Ignore storage quota issues
+        }
+        return {
+          status: 'loaded',
+          db: remoteDb,
+          message: '✅ ¡Datos de la congregación cargados desde Supabase!',
+        };
+      }
+
+      const existingTables = await fetchExistingTables();
+      return {
+        status: 'empty',
+        existingTables,
+        message: `✅ Conectado a Supabase correctamente, pero la tabla "congregation_state" aún no tiene datos guardados para el ID "${rowId}".`,
+      };
+    }
+
+    const errText = await res.text().catch(() => '');
+    if (res.status === 401 || res.status === 403) {
+      return {
+        status: 'error',
+        message:
+          '❌ Clave Supabase Anon Key inválida o sin permisos (401/403). Verifica que copiaste la clave "anon public".',
+      };
+    }
+
+    if (
+      res.status === 404 ||
+      errText.includes('PGRST205') ||
+      errText.includes('congregation_state')
+    ) {
+      const existingTables = await fetchExistingTables();
+      return {
+        status: 'missing_table',
+        existingTables,
+        message:
+          '⚠️ Conectado a tu proyecto de Supabase, pero aún no existe la tabla "congregation_state".',
+      };
+    }
+
+    return {
+      status: 'error',
+      message: `❌ Error de Supabase (${res.status}): ${errText || res.statusText}`,
+    };
+  } catch (err) {
+    return {
+      status: 'error',
+      message: `❌ No se pudo conectar con Supabase: ${
+        err instanceof Error ? err.message : 'Error de red'
+      }`,
+    };
+  }
 }

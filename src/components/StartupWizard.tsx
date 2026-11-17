@@ -5,6 +5,7 @@ import {
   Calendar,
   CheckCircle2,
   Cloud,
+  Copy,
   FileUp,
   FolderGit2,
   Plus,
@@ -29,10 +30,14 @@ import {
   parseTerritoriesKml,
 } from '../services/kmlImporter';
 import {
+  CONGREGATION_STATE_SQL,
+  connectAndFetchFromSupabase,
   getDefaultNotificationTemplates,
   getDemoDatabase,
   loadCloudConfig,
+  sanitizeDatabase,
   saveCloudConfig,
+  SupabaseConnectResult,
 } from '../services/storageAndSync';
 
 interface StartupWizardProps {
@@ -46,16 +51,22 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
 }) => {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
-  // Paso 1: Congregación y Conexión Opcional a Supabase
+  // Paso 1: Congregación y Conexión a Supabase
   const [congregationName, setCongregationName] = useState<string>('');
   const [step1Error, setStep1Error] = useState<string>('');
   const initialCloud = loadCloudConfig();
-  const [showSupabaseSetup, setShowSupabaseSetup] = useState<boolean>(false);
+  const [showSupabaseSetup, setShowSupabaseSetup] = useState<boolean>(true);
   const [supaUrl, setSupaUrl] = useState<string>(initialCloud.supabaseUrl);
   const [supaKey, setSupaKey] = useState<string>(initialCloud.supabaseAnonKey);
   const [supaCongId, setSupaCongId] = useState<string>(
     initialCloud.congregationId || 'main'
   );
+  const [isConnectingSupabase, setIsConnectingSupabase] =
+    useState<boolean>(false);
+  const [supabaseResult, setSupabaseResult] =
+    useState<SupabaseConnectResult | null>(null);
+  const [sqlCopied, setSqlCopied] = useState<boolean>(false);
+  const [backupRestoreMsg, setBackupRestoreMsg] = useState<string>('');
 
   // Paso 2: Los 2 Archivos KML/KMZ de Google My Maps
   const [file1Name, setFile1Name] = useState<string>('');
@@ -98,6 +109,66 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
     }
     setStep1Error('');
     setStep(2);
+  };
+
+  const handleConnectSupabase = async () => {
+    setIsConnectingSupabase(true);
+    setSupabaseResult(null);
+    const res = await connectAndFetchFromSupabase({
+      supabaseUrl: supaUrl,
+      supabaseAnonKey: supaKey,
+      congregationId: supaCongId,
+      enabled: true,
+    });
+    setIsConnectingSupabase(false);
+    setSupabaseResult(res);
+    if (res.status === 'loaded' && res.db) {
+      onCompleteWizard(res.db);
+    }
+  };
+
+  const handleCopySql = async () => {
+    try {
+      await navigator.clipboard.writeText(CONGREGATION_STATE_SQL);
+      setSqlCopied(true);
+      setTimeout(() => setSqlCopied(false), 3000);
+    } catch {
+      setSqlCopied(false);
+    }
+  };
+
+  const handleRestoreJsonInWizard = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as Partial<AppDatabase>;
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        !Array.isArray(parsed.territories)
+      ) {
+        setBackupRestoreMsg(
+          '❌ El archivo seleccionado no es un respaldo válido.'
+        );
+        return;
+      }
+      if (supaUrl.trim() && supaKey.trim()) {
+        saveCloudConfig({
+          supabaseUrl: supaUrl.trim(),
+          supabaseAnonKey: supaKey.trim(),
+          enabled: true,
+          congregationId: supaCongId.trim() || 'main',
+        });
+      }
+      const restored = sanitizeDatabase({ ...parsed, isConfigured: true });
+      onCompleteWizard(restored);
+    } catch {
+      setBackupRestoreMsg('❌ No se pudo leer el archivo .json.');
+    }
   };
 
   // Subida del Archivo 1 (Territorios individuales)
@@ -415,9 +486,94 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
                       />
                     </div>
+
+                    <button
+                      type="button"
+                      disabled={isConnectingSupabase}
+                      onClick={handleConnectSupabase}
+                      className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-black text-xs sm:text-sm rounded-xl inline-flex items-center justify-center gap-2 cursor-pointer transition"
+                    >
+                      <Cloud className="w-4 h-4" />
+                      {isConnectingSupabase
+                        ? 'Conectando con Supabase...'
+                        : '🔌 Conectar y Cargar desde Supabase'}
+                    </button>
+
+                    {supabaseResult && (
+                      <div
+                        className={`p-3 rounded-xl border text-xs space-y-2 ${
+                          supabaseResult.status === 'error'
+                            ? 'bg-red-50 border-red-300 text-red-900'
+                            : supabaseResult.status === 'missing_table'
+                            ? 'bg-amber-50 border-amber-300 text-amber-950'
+                            : 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                        }`}
+                      >
+                        <div className="font-bold">{supabaseResult.message}</div>
+
+                        {supabaseResult.existingTables &&
+                          supabaseResult.existingTables.length > 0 && (
+                            <div className="text-[11px]">
+                              <strong>Tablas encontradas en Supabase:</strong>{' '}
+                              {supabaseResult.existingTables.join(', ')}
+                            </div>
+                          )}
+
+                        {supabaseResult.status === 'empty' && (
+                          <div className="text-[11px]">
+                            Puedes restaurar una copia <code>.json</code> abajo o
+                            completar los 4 pasos para guardar la congregación en
+                            Supabase.
+                          </div>
+                        )}
+
+                        {supabaseResult.status === 'missing_table' && (
+                          <div className="space-y-2 pt-1">
+                            <div className="text-[11px]">
+                              Copia este script SQL y ejecútalo en Supabase →{' '}
+                              <strong>SQL Editor</strong> para crear la tabla{' '}
+                              <code>congregation_state</code>:
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleCopySql}
+                              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] inline-flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              {sqlCopied
+                                ? '✓ ¡SQL Copiado al portapapeles!'
+                                : '📋 Copiar Script SQL para crear la tabla'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
+
+              <div className="p-3.5 rounded-2xl border border-dashed border-emerald-400 bg-emerald-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="text-xs text-emerald-950">
+                  <strong>¿Ya tienes una copia de seguridad?</strong> Restaura
+                  tu archivo <code>.json</code> directamente aquí.
+                </div>
+                <label className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer shrink-0">
+                  <FileUp className="w-4 h-4" />
+                  📂 Restaurar desde Copia de Seguridad (.json)
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleRestoreJsonInWizard}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {backupRestoreMsg && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-300 text-red-800 text-xs font-bold">
+                  {backupRestoreMsg}
+                </div>
+              )}
 
               {step1Error && (
                 <div className="p-3 rounded-xl bg-red-50 border border-red-300 text-red-800 text-xs font-bold">
