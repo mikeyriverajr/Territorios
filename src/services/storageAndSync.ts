@@ -20,6 +20,24 @@ export interface CloudSyncConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
   enabled: boolean;
+  congregationId?: string;
+}
+
+export function getEnvCloudConfig(): CloudSyncConfig {
+  const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+  const envCongId =
+    (import.meta.env.VITE_CONGREGATION_ID || 'main').trim() || 'main';
+  return {
+    supabaseUrl: envUrl,
+    supabaseAnonKey: envKey,
+    enabled: Boolean(envUrl && envKey),
+    congregationId: envCongId,
+  };
+}
+
+function getSupabaseRowId(cfg: CloudSyncConfig): string {
+  return (cfg.congregationId || 'main').trim() || 'main';
 }
 
 export function getDefaultNotificationTemplates(): PushNotificationTemplate[] {
@@ -90,7 +108,7 @@ export function getDemoDatabase(): AppDatabase {
   const today = new Date().toISOString().slice(0, 10);
 
   const conductors: ConductorUser[] = [
-    { id: 'cond-1', name: 'Hno. Carlos Gómez', pin: '1111' },
+    { id: 'cond-1', name: 'Hno. Carlos Gómez', pin: '1111', isAdmin: true },
     { id: 'cond-2', name: 'Hno. Daniel Paredes', pin: '2222' },
     { id: 'cond-3', name: 'Hno. Marcos Silva', pin: '3333' },
     { id: 'cond-4', name: 'Hno. Roberto Fernández', pin: '4444' },
@@ -370,13 +388,22 @@ export function getDemoDatabase(): AppDatabase {
  */
 export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
   const blank = getBlankLiveDatabase();
+  const rawConductors = Array.isArray(parsed.conductors)
+    ? parsed.conductors
+    : [];
+  const hasAnyAdmin = rawConductors.some((c) => Boolean(c?.isAdmin));
+  const normalizedConductors: ConductorUser[] = rawConductors.map((c, idx) => ({
+    ...c,
+    isAdmin: hasAnyAdmin ? Boolean(c.isAdmin) : idx === 0,
+  }));
+
   return {
     ...blank,
     ...parsed,
     isConfigured: parsed.isConfigured ?? false,
     congregationName: parsed.congregationName || '',
     adminPin: parsed.adminPin || '',
-    conductors: Array.isArray(parsed.conductors) ? parsed.conductors : [],
+    conductors: normalizedConductors,
     territories: Array.isArray(parsed.territories) ? parsed.territories : [],
     blocks: Array.isArray(parsed.blocks) ? parsed.blocks : [],
     housePoints: Array.isArray(parsed.housePoints) ? parsed.housePoints : [],
@@ -387,7 +414,8 @@ export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
         }))
       : [],
     notificationTemplates:
-      Array.isArray(parsed.notificationTemplates) && parsed.notificationTemplates.length > 0
+      Array.isArray(parsed.notificationTemplates) &&
+      parsed.notificationTemplates.length > 0
         ? parsed.notificationTemplates
         : getDefaultNotificationTemplates(),
     pushNotifications: Array.isArray(parsed.pushNotifications)
@@ -412,6 +440,61 @@ export function loadDatabase(): AppDatabase {
   }
 }
 
+export async function pushDatabaseToSupabase(
+  db: AppDatabase,
+  customCfg?: CloudSyncConfig
+): Promise<{ ok: boolean; error?: string }> {
+  const supa = customCfg || loadCloudConfig();
+  const cleanUrl = supa.supabaseUrl.trim().replace(/\/$/, '');
+  const cleanKey = supa.supabaseAnonKey.trim();
+  const rowId = getSupabaseRowId(supa);
+
+  if (!supa.enabled || !cleanUrl || !cleanKey) {
+    return {
+      ok: false,
+      error: 'Falta ingresar Supabase Project URL y Anon Key.',
+    };
+  }
+
+  try {
+    const res = await fetch(
+      `${cleanUrl}/rest/v1/congregation_state?on_conflict=id`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: cleanKey,
+          Authorization: `Bearer ${cleanKey}`,
+          Prefer: 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify({
+          id: rowId,
+          payload: db,
+          updated_at: db.lastUpdated || new Date().toISOString(),
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return {
+        ok: false,
+        error: `Error Supabase (${res.status}): ${text || res.statusText}`,
+      };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : 'Error de red al conectar con Supabase.',
+    };
+  }
+}
+
 export function saveDatabase(db: AppDatabase): AppDatabase {
   const updated: AppDatabase = {
     ...db,
@@ -424,30 +507,16 @@ export function saveDatabase(db: AppDatabase): AppDatabase {
   }
 
   if (typeof window !== 'undefined') {
-    // 1. Sincronizar con el servidor en la nube integrado (/api/cloud-state)
-    fetch('/api/cloud-state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updated),
-    }).catch(() => {});
-
-    // 2. Si el Admin configuró Supabase externo, sincronizar también con Supabase
     const supa = loadCloudConfig();
     if (supa.enabled && supa.supabaseUrl && supa.supabaseAnonKey) {
-      const cleanUrl = supa.supabaseUrl.replace(/\/$/, '');
-      fetch(`${cleanUrl}/rest/v1/congregation_state?id=eq.main`, {
+      // 1. Sincronizar con Supabase (almacenamiento en la nube principal)
+      pushDatabaseToSupabase(updated, supa).catch(() => {});
+    } else {
+      // 2. Respaldo local con servidor Node integrado (/api/cloud-state) si existe
+      fetch('/api/cloud-state', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: supa.supabaseAnonKey,
-          Authorization: `Bearer ${supa.supabaseAnonKey}`,
-          Prefer: 'resolution=merge-duplicates',
-        },
-        body: JSON.stringify({
-          id: 'main',
-          payload: updated,
-          updated_at: updated.lastUpdated,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
       }).catch(() => {});
     }
   }
@@ -457,16 +526,20 @@ export function saveDatabase(db: AppDatabase): AppDatabase {
 
 export async function fetchCloudDatabase(): Promise<AppDatabase | null> {
   try {
-    // 1. Si hay Supabase externo activo, consultar primero ahí
+    // 1. Si hay Supabase activo (por variables de entorno o ajuste manual), consultar ahí
     const supa = loadCloudConfig();
     if (supa.enabled && supa.supabaseUrl && supa.supabaseAnonKey) {
-      const cleanUrl = supa.supabaseUrl.replace(/\/$/, '');
+      const cleanUrl = supa.supabaseUrl.trim().replace(/\/$/, '');
+      const cleanKey = supa.supabaseAnonKey.trim();
+      const rowId = getSupabaseRowId(supa);
       const res = await fetch(
-        `${cleanUrl}/rest/v1/congregation_state?id=eq.main&select=payload`,
+        `${cleanUrl}/rest/v1/congregation_state?id=eq.${encodeURIComponent(
+          rowId
+        )}&select=payload`,
         {
           headers: {
-            apikey: supa.supabaseAnonKey,
-            Authorization: `Bearer ${supa.supabaseAnonKey}`,
+            apikey: cleanKey,
+            Authorization: `Bearer ${cleanKey}`,
           },
           cache: 'no-store',
         }
@@ -479,9 +552,10 @@ export async function fetchCloudDatabase(): Promise<AppDatabase | null> {
           return remoteDb;
         }
       }
+      return null;
     }
 
-    // 2. Consultar el servidor en la nube integrado (/api/cloud-state)
+    // 2. Respaldo: consultar el servidor en la nube integrado (/api/cloud-state)
     const res = await fetch('/api/cloud-state', { cache: 'no-store' });
     if (!res.ok) return null;
     const data = (await res.json()) as AppDatabase | null;
@@ -678,15 +752,43 @@ export function generateHouseShortCode(
 }
 
 export function loadCloudConfig(): CloudSyncConfig {
+  const envCfg = getEnvCloudConfig();
   try {
     const raw = localStorage.getItem(SUPABASE_CONFIG_KEY);
-    if (!raw) return { supabaseUrl: '', supabaseAnonKey: '', enabled: false };
-    return JSON.parse(raw) as CloudSyncConfig;
+    if (!raw) return envCfg;
+    const parsed = JSON.parse(raw) as Partial<CloudSyncConfig>;
+    const supabaseUrl = (parsed.supabaseUrl || envCfg.supabaseUrl || '').trim();
+    const supabaseAnonKey = (
+      parsed.supabaseAnonKey ||
+      envCfg.supabaseAnonKey ||
+      ''
+    ).trim();
+    const congregationId =
+      (parsed.congregationId || envCfg.congregationId || 'main').trim() ||
+      'main';
+    const enabled =
+      parsed.enabled !== undefined
+        ? Boolean(parsed.enabled && supabaseUrl && supabaseAnonKey)
+        : Boolean(supabaseUrl && supabaseAnonKey);
+    return {
+      supabaseUrl,
+      supabaseAnonKey,
+      enabled,
+      congregationId,
+    };
   } catch {
-    return { supabaseUrl: '', supabaseAnonKey: '', enabled: false };
+    return envCfg;
   }
 }
 
 export function saveCloudConfig(cfg: CloudSyncConfig): void {
-  localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(cfg));
+  localStorage.setItem(
+    SUPABASE_CONFIG_KEY,
+    JSON.stringify({
+      ...cfg,
+      supabaseUrl: cfg.supabaseUrl.trim(),
+      supabaseAnonKey: cfg.supabaseAnonKey.trim(),
+      congregationId: (cfg.congregationId || 'main').trim() || 'main',
+    })
+  );
 }

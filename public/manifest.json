@@ -2,7 +2,7 @@
   "name": "Territorios y Predicación — Congregación",
   "short_name": "Territorios",
   "description": "Programa semanal, mapas de territorios, manzanas y registro de casas No en Casa con soporte sin conexión.",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#1e3a8a",

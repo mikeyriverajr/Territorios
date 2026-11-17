@@ -48,7 +48,9 @@ import {
 } from '../services/notificationHelper';
 import {
   CloudSyncConfig,
+  getEnvCloudConfig,
   loadCloudConfig,
+  pushDatabaseToSupabase,
   sanitizeDatabase,
   saveCloudConfig,
 } from '../services/storageAndSync';
@@ -91,7 +93,8 @@ interface AdminDashboardProps {
     newPoints: HousePoint[],
     replaceAll: boolean
   ) => void;
-  onAddConductor: (name: string, pin: string) => void;
+  onAddConductor: (name: string, pin: string, isAdmin?: boolean) => void;
+  onToggleConductorAdmin: (conductorId: string) => void;
   onDeleteConductor: (conductorId: string) => void;
   onAddScheduleSlot: (slot: Omit<ScheduleSlot, 'id'>) => void;
   onUpdateScheduleSlot: (slot: ScheduleSlot) => void;
@@ -122,6 +125,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onOpenTerritoryInMap,
   onImportMapsData,
   onAddConductor,
+  onToggleConductorAdmin,
   onDeleteConductor,
   onAddScheduleSlot,
   onUpdateScheduleSlot,
@@ -149,6 +153,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Estados para Conductores
   const [newConductorName, setNewConductorName] = useState<string>('');
   const [newConductorPin, setNewConductorPin] = useState<string>('');
+  const [newConductorIsAdmin, setNewConductorIsAdmin] = useState<boolean>(false);
 
   // Estados para Programa Semanal (asignación por fecha + día de la semana)
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -188,18 +193,75 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Estados de Ajustes
   const [congNameEdit, setCongNameEdit] = useState<string>(db.congregationName);
-  const [adminPinEdit, setAdminPinEdit] = useState<string>(db.adminPin);
   const [cloudCfg, setCloudCfg] = useState<CloudSyncConfig>(() =>
     loadCloudConfig()
   );
   const [settingsSavedMsg, setSettingsSavedMsg] = useState<string>('');
+  const [cloudSyncStatusMsg, setCloudSyncStatusMsg] = useState<string>('');
+  const [backupStatusMsg, setBackupStatusMsg] = useState<string>('');
+  const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
+  const hasEnvSupabase = getEnvCloudConfig().enabled;
 
   const handleCreateConductor = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newConductorName.trim() || !newConductorPin.trim()) return;
-    onAddConductor(newConductorName.trim(), newConductorPin.trim());
+    onAddConductor(
+      newConductorName.trim(),
+      newConductorPin.trim(),
+      newConductorIsAdmin
+    );
     setNewConductorName('');
     setNewConductorPin('');
+    setNewConductorIsAdmin(false);
+  };
+
+  const handleDownloadFullBackup = () => {
+    const jsonStr = JSON.stringify(db, null, 2);
+    const blob = new Blob([jsonStr], {
+      type: 'application/json;charset=utf-8;',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = (db.congregationName || 'Congregacion')
+      .trim()
+      .replace(/\s+/g, '_');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `Respaldo_Territorios_${safeName}_${dateStr}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setBackupStatusMsg(
+      '✅ Copia de seguridad descargada. Guárdela en un lugar seguro.'
+    );
+  };
+
+  const handleRestoreBackupFile = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as Partial<AppDatabase>;
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        !Array.isArray(parsed.territories)
+      ) {
+        setBackupStatusMsg('❌ El archivo seleccionado no es un respaldo válido.');
+        return;
+      }
+      const restored = sanitizeDatabase({ ...parsed, isConfigured: true });
+      onRestoreFullBackup(restored);
+      setBackupStatusMsg(
+        `✅ Copia restaurada (${restored.territories.length} territorios, ${restored.conductors.length} conductores) y enviada a la nube.`
+      );
+    } catch {
+      setBackupStatusMsg(
+        '❌ No se pudo leer el archivo .json. Verifique que no esté dañado.'
+      );
+    }
   };
 
   const resetSlotForm = () => {
@@ -466,8 +528,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleLoadSampleTwoFiles = async () => {
     try {
       const [res1, res2] = await Promise.all([
-        fetch('/ejemplos/archivo1_territorios_ejemplo.kml'),
-        fetch('/ejemplos/archivo2_manzanas_y_casas_ejemplo.kml'),
+        fetch('./ejemplos/archivo1_territorios_ejemplo.kml'),
+        fetch('./ejemplos/archivo2_manzanas_y_casas_ejemplo.kml'),
       ]);
       const kml1 = await res1.text();
       const kml2 = await res2.text();
@@ -1056,31 +1118,89 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   + Agregar
                 </button>
               </div>
+              <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer pt-0.5">
+                <input
+                  type="checkbox"
+                  checked={newConductorIsAdmin}
+                  onChange={(e) => setNewConductorIsAdmin(e.target.checked)}
+                  className="w-4 h-4 accent-amber-600"
+                />
+                <span>🛡️ Dar permisos de Administrador</span>
+              </label>
             </form>
 
             <div className="space-y-2 pt-2 border-t border-slate-200">
-              {db.conductors.map((c) => (
-                <div
-                  key={c.id}
-                  className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs sm:text-sm"
-                >
-                  <div>
-                    <div className="font-extrabold text-slate-900">
-                      {c.name}
+              {(() => {
+                const adminCount = db.conductors.filter((x) => x.isAdmin).length;
+                return db.conductors.map((c) => {
+                  const isOnlyAdmin = Boolean(c.isAdmin) && adminCount <= 1;
+                  return (
+                    <div
+                      key={c.id}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs sm:text-sm ${
+                        c.isAdmin
+                          ? 'bg-amber-50/70 border-amber-300'
+                          : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                          <span>{c.name}</span>
+                          {c.isAdmin && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-200 text-amber-950 text-[10px] font-black uppercase">
+                              🛡️ Admin
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          PIN de acceso:{' '}
+                          <strong className="font-mono">{c.pin}</strong>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onToggleConductorAdmin(c.id)}
+                          disabled={isOnlyAdmin}
+                          title={
+                            isOnlyAdmin
+                              ? 'Debe quedar al menos un Administrador'
+                              : c.isAdmin
+                              ? 'Quitar permisos de Administrador'
+                              : 'Dar permisos de Administrador'
+                          }
+                          className={`px-2 py-1 rounded-lg border text-[11px] font-bold transition ${
+                            isOnlyAdmin
+                              ? 'border-slate-200 text-slate-400 bg-slate-100 cursor-not-allowed'
+                              : c.isAdmin
+                              ? 'border-amber-300 bg-white hover:bg-amber-100 text-amber-900 cursor-pointer'
+                              : 'border-slate-300 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer'
+                          }`}
+                        >
+                          {c.isAdmin ? 'Quitar Admin' : 'Hacer Admin'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteConductor(c.id)}
+                          disabled={isOnlyAdmin}
+                          className={`p-1.5 rounded-lg ${
+                            isOnlyAdmin
+                              ? 'text-slate-300 cursor-not-allowed'
+                              : 'text-red-600 hover:bg-red-50 cursor-pointer'
+                          }`}
+                          title={
+                            isOnlyAdmin
+                              ? 'No puede eliminar al único Administrador'
+                              : 'Eliminar conductor'
+                          }
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-500">
-                      PIN de acceso: <strong className="font-mono">{c.pin}</strong>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onDeleteConductor(c.id)}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
-                    title="Eliminar conductor"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>
@@ -1478,121 +1598,220 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {activeTab === 'ajustes' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
-            <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-blue-700" />
-              Datos de la Congregación y PIN de Administrador
-            </h3>
+            <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
+              <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-blue-700" />
+                Datos de la Congregación y Acceso Admin
+              </h3>
 
-            <div>
-              <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                Nombre de la Congregación:
-              </label>
-              <input
-                type="text"
-                value={congNameEdit}
-                onChange={(e) => setCongNameEdit(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                PIN del Siervo de Territorios / Admin:
-              </label>
-              <input
-                type="text"
-                value={adminPinEdit}
-                onChange={(e) => setAdminPinEdit(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
-              />
-            </div>
-
-            <button
-              onClick={() => {
-                onUpdateCongregationSettings(congNameEdit, adminPinEdit);
-                setSettingsSavedMsg('✅ Ajustes guardados.');
-                setTimeout(() => setSettingsSavedMsg(''), 3000);
-              }}
-              className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white font-black text-sm rounded-xl cursor-pointer"
-            >
-              Guardar Nombre y PIN
-            </button>
-
-            {settingsSavedMsg && (
-              <div className="text-xs font-bold text-emerald-700">
-                {settingsSavedMsg}
+              <div>
+                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                  Nombre de la Congregación:
+                </label>
+                <input
+                  type="text"
+                  value={congNameEdit}
+                  onChange={(e) => setCongNameEdit(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
+                />
               </div>
-            )}
 
-            {onLaunchStartupWizard && (
-              <div className="pt-3 border-t border-slate-200">
-                <button
-                  onClick={onLaunchStartupWizard}
-                  className="w-full py-2.5 px-3 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 font-extrabold text-xs sm:text-sm rounded-xl cursor-pointer transition"
-                >
-                  🪄 Abrir Asistente de Configuración Inicial (Desde Cero)
-                </button>
+              <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-950">
+                <strong>Acceso unificado:</strong> Los permisos de Administrador
+                se asignan directamente a cada conductor desde la pestaña{' '}
+                <strong>Programa y Conductores</strong>. Quien tenga permisos
+                puede alternar entre su vista de conductor y este panel desde la
+                barra superior.
+              </div>
+
+              <button
+                onClick={() => {
+                  onUpdateCongregationSettings(congNameEdit, db.adminPin);
+                  setSettingsSavedMsg('✅ Nombre de la congregación guardado.');
+                  setTimeout(() => setSettingsSavedMsg(''), 3000);
+                }}
+                className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white font-black text-sm rounded-xl cursor-pointer"
+              >
+                Guardar Nombre
+              </button>
+
+              {settingsSavedMsg && (
+                <div className="text-xs font-bold text-emerald-700">
+                  {settingsSavedMsg}
+                </div>
+              )}
+
+              {onLaunchStartupWizard && (
+                <div className="pt-3 border-t border-slate-200">
+                  <button
+                    onClick={onLaunchStartupWizard}
+                    className="w-full py-2.5 px-3 bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 font-extrabold text-xs sm:text-sm rounded-xl cursor-pointer transition"
+                  >
+                    🪄 Abrir Asistente de Configuración Inicial (Desde Cero)
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
+                  <Cloud className="w-5 h-5 text-indigo-700" />
+                  Sincronización en la Nube (Supabase)
+                </h3>
+                {hasEnvSupabase && (
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 text-[11px] font-black">
+                    ✓ Configurado por Variables de Entorno
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-600">
+                Todos los dispositivos conectados sincronizan automáticamente los
+                territorios, manzanas, "No en casa" y notificaciones usando la
+                tabla <code>congregation_state</code> de Supabase.
+              </p>
+              <div>
+                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                  Supabase Project URL:
+                </label>
+                <input
+                  type="text"
+                  value={cloudCfg.supabaseUrl}
+                  onChange={(e) =>
+                    setCloudCfg({ ...cloudCfg, supabaseUrl: e.target.value })
+                  }
+                  placeholder="https://xyzcompany.supabase.co"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                  Supabase Anon Key:
+                </label>
+                <input
+                  type="password"
+                  value={cloudCfg.supabaseAnonKey}
+                  onChange={(e) =>
+                    setCloudCfg({
+                      ...cloudCfg,
+                      supabaseAnonKey: e.target.value,
+                    })
+                  }
+                  placeholder="eyJhbGciOiJIUzI1NiIsInR5..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                  ID de Congregación (por defecto: main):
+                </label>
+                <input
+                  type="text"
+                  value={cloudCfg.congregationId || 'main'}
+                  onChange={(e) =>
+                    setCloudCfg({ ...cloudCfg, congregationId: e.target.value })
+                  }
+                  placeholder="main"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-mono"
+                />
+              </div>
+              <button
+                type="button"
+                disabled={isSyncingCloud}
+                onClick={async () => {
+                  const cleanCfg: CloudSyncConfig = {
+                    supabaseUrl: cloudCfg.supabaseUrl.trim(),
+                    supabaseAnonKey: cloudCfg.supabaseAnonKey.trim(),
+                    congregationId:
+                      (cloudCfg.congregationId || 'main').trim() || 'main',
+                    enabled: Boolean(
+                      cloudCfg.supabaseUrl.trim() &&
+                        cloudCfg.supabaseAnonKey.trim()
+                    ),
+                  };
+                  saveCloudConfig(cleanCfg);
+                  setCloudCfg(cleanCfg);
+                  if (!cleanCfg.enabled) {
+                    setCloudSyncStatusMsg(
+                      '⚠️ Ingrese Supabase Project URL y Anon Key para activar la nube.'
+                    );
+                    return;
+                  }
+                  setIsSyncingCloud(true);
+                  setCloudSyncStatusMsg(
+                    '⏳ Subiendo datos actuales a Supabase...'
+                  );
+                  const result = await pushDatabaseToSupabase(db, cleanCfg);
+                  setIsSyncingCloud(false);
+                  if (result.ok) {
+                    setCloudSyncStatusMsg(
+                      '✅ Conectado y datos actuales guardados en Supabase.'
+                    );
+                  } else {
+                    setCloudSyncStatusMsg(
+                      `❌ ${result.error || 'No se pudo conectar con Supabase.'}`
+                    );
+                  }
+                }}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {isSyncingCloud
+                  ? 'Sincronizando...'
+                  : '☁️ Guardar y Subir Datos Actuales a Supabase'}
+              </button>
+              {cloudSyncStatusMsg && (
+                <div className="text-xs font-bold p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-800">
+                  {cloudSyncStatusMsg}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Copia de Seguridad Completa (.json) */}
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
+                  <Download className="w-5 h-5 text-emerald-700" />
+                  Copia de Seguridad Completa (.json)
+                </h3>
+                <p className="text-xs text-slate-600">
+                  Descargue todo el sistema en un archivo (territorios, manzanas,
+                  casas, conductores, programa e historial S-13) o restáurelo en
+                  otra URL o dispositivo.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleDownloadFullBackup}
+                className="py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl inline-flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                💾 Descargar Copia de Seguridad (.json)
+              </button>
+
+              <label className="py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 font-black text-sm rounded-xl inline-flex items-center justify-center gap-2 cursor-pointer">
+                <FileUp className="w-4 h-4 text-blue-700" />
+                📂 Restaurar Copia de Seguridad (.json)
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleRestoreBackupFile}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {backupStatusMsg && (
+              <div className="text-xs font-bold p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900">
+                {backupStatusMsg}
               </div>
             )}
           </div>
-
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
-            <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
-              <Cloud className="w-5 h-5 text-indigo-700" />
-              Sincronización en la Nube
-            </h3>
-            <p className="text-xs text-slate-600">
-              Todos los dispositivos conectados sincronizan automáticamente la
-              lista de "No en casa", manzanas y notificaciones. También puede
-              conectar un proyecto gratuito de Supabase:
-            </p>
-            <div>
-              <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                Supabase Project URL:
-              </label>
-              <input
-                type="text"
-                value={cloudCfg.supabaseUrl}
-                onChange={(e) =>
-                  setCloudCfg({ ...cloudCfg, supabaseUrl: e.target.value })
-                }
-                placeholder="https://xyzcompany.supabase.co"
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                Supabase Anon Key:
-              </label>
-              <input
-                type="password"
-                value={cloudCfg.supabaseAnonKey}
-                onChange={(e) =>
-                  setCloudCfg({ ...cloudCfg, supabaseAnonKey: e.target.value })
-                }
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
-              />
-            </div>
-            <button
-              onClick={() => {
-                saveCloudConfig({
-                  ...cloudCfg,
-                  enabled: Boolean(
-                    cloudCfg.supabaseUrl && cloudCfg.supabaseAnonKey
-                  ),
-                });
-                setSettingsSavedMsg('✅ Configuración guardada.');
-                setTimeout(() => setSettingsSavedMsg(''), 3000);
-              }}
-              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Guardar Conector
-            </button>
-          </div>
-        </div>
 
         {/* Sección Importar Mapas KML dentro de Ajustes */}
         <div className="mt-8 pt-8 border-t-2 border-slate-200">

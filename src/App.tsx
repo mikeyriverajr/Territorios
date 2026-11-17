@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, ShieldCheck, User, Wifi, WifiOff } from 'lucide-react';
+import { LogOut, RefreshCw, ShieldCheck, User, Wifi, WifiOff } from 'lucide-react';
 import {
   AppDatabase,
   Block,
@@ -17,10 +17,10 @@ import {
   appendSyncAction,
   fetchCloudDatabase,
   generateHouseShortCode,
-  getBlankLiveDatabase,
   loadDatabase,
   markWholeTerritoryCompleted,
   resetTerritoryForNewCycle,
+  sanitizeDatabase,
   saveDatabase,
 } from './services/storageAndSync';
 import { StartupWizard } from './components/StartupWizard';
@@ -130,21 +130,31 @@ export const App: React.FC = () => {
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [initialCloudCheckDone, setInitialCloudCheckDone] = useState<boolean>(
+    () => Boolean(loadDatabase().isConfigured)
+  );
+  const [isWizardOpen, setIsWizardOpen] = useState<boolean>(false);
 
-  // Sincronización periódica con la nube (/api/cloud-state)
+  // Sincronización periódica con la nube (Supabase o /api/cloud-state)
   useEffect(() => {
     let active = true;
 
     const syncFromCloud = async () => {
-      const cloudDb = await fetchCloudDatabase();
-      if (!active) return;
-      if (cloudDb && cloudDb.isConfigured) {
-        setDb((prev) => {
-          if (cloudDb.lastUpdated !== prev.lastUpdated) {
-            return cloudDb;
-          }
-          return prev;
-        });
+      try {
+        const cloudDb = await fetchCloudDatabase();
+        if (!active) return;
+        if (cloudDb && cloudDb.isConfigured) {
+          setDb((prev) => {
+            if (cloudDb.lastUpdated !== prev.lastUpdated) {
+              return cloudDb;
+            }
+            return prev;
+          });
+        }
+      } finally {
+        if (active) {
+          setInitialCloudCheckDone(true);
+        }
       }
     };
 
@@ -155,6 +165,27 @@ export const App: React.FC = () => {
       clearInterval(interval);
     };
   }, []);
+
+  // Mantener sincronizado el conductor logueado si cambian sus datos o permisos de Admin
+  useEffect(() => {
+    if (!loggedConductor) return;
+    const updated = db.conductors.find((c) => c.id === loggedConductor.id);
+    if (!updated) {
+      setLoggedConductor(null);
+      setAuthRole(null);
+      return;
+    }
+    if (
+      updated.isAdmin !== loggedConductor.isAdmin ||
+      updated.name !== loggedConductor.name ||
+      updated.pin !== loggedConductor.pin
+    ) {
+      setLoggedConductor(updated);
+      if (authRole === 'admin' && !updated.isAdmin) {
+        setAuthRole('conductor');
+      }
+    }
+  }, [db.conductors, loggedConductor, authRole]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -345,14 +376,77 @@ export const App: React.FC = () => {
     setDb(nextDb);
   };
 
-  // ASISTENTE DE CONFIGURACIÓN INICIAL (STARTUP WIZARD) CUANDO LA APP NO HA SIDO CONFIGURADA AÚN
-  if (!db.isConfigured) {
+  // ESPERA INICIAL DE SINCRONIZACIÓN CON LA NUBE ANTES DE MOSTRAR EL ASISTENTE
+  if (!db.isConfigured && !initialCloudCheckDone && !isWizardOpen) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-sm w-full text-center space-y-3 shadow-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center mx-auto text-3xl animate-pulse">
+            🗺️
+          </div>
+          <h1 className="text-lg font-black">
+            Sincronizando datos de la congregación...
+          </h1>
+          <p className="text-xs text-slate-300">
+            Conectando con la nube para cargar territorios y salidas.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // PROTECCIÓN PARA LINKS DE PUBLICADOR (?grupo=...): Nunca enviar a un publicador al Asistente Admin si está offline
+  if (authRole === 'publisher_link' && !db.isConfigured && !isWizardOpen) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-4 shadow-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-amber-600 flex items-center justify-center mx-auto text-3xl">
+            📡
+          </div>
+          <h1 className="text-xl font-black">
+            No se pudo cargar la salida desde la nube
+          </h1>
+          <p className="text-sm text-slate-300">
+            Verifique su conexión a Internet y vuelva a intentar para abrir el
+            mapa del grupo.
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              setInitialCloudCheckDone(false);
+              const cloudDb = await fetchCloudDatabase();
+              if (cloudDb && cloudDb.isConfigured) {
+                setDb(cloudDb);
+              }
+              setInitialCloudCheckDone(true);
+            }}
+            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm rounded-xl inline-flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Reintentar Conexión
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ASISTENTE DE CONFIGURACIÓN INICIAL (STARTUP WIZARD) CUANDO LA APP NO HA SIDO CONFIGURADA O EL ADMIN LO ABRE
+  if (!db.isConfigured || isWizardOpen) {
     return (
       <StartupWizard
+        onCancel={db.isConfigured ? () => setIsWizardOpen(false) : undefined}
         onCompleteWizard={(configuredDb) => {
-          const saved = saveDatabase(configuredDb);
+          const sanitized = sanitizeDatabase(configuredDb);
+          const saved = saveDatabase(sanitized);
           setDb(saved);
+          setIsWizardOpen(false);
+          const firstAdmin =
+            saved.conductors.find((c) => c.isAdmin) ||
+            saved.conductors[0] ||
+            null;
+          setLoggedConductor(firstAdmin);
           setAuthRole('admin');
+          setMapOpenForTerritoryId(null);
         }}
       />
     );
@@ -441,8 +535,10 @@ export const App: React.FC = () => {
             <div className="text-[11px] text-slate-300 flex items-center gap-2">
               {authRole === 'admin' ? (
                 <span className="inline-flex items-center gap-1 text-amber-300 font-bold">
-                  <ShieldCheck className="w-3 h-3" /> Siervo de Territorios
-                  (Admin)
+                  <ShieldCheck className="w-3 h-3" />{' '}
+                  {loggedConductor
+                    ? `Admin: ${loggedConductor.name}`
+                    : 'Siervo de Territorios (Admin)'}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-blue-300 font-bold">
@@ -465,6 +561,40 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {loggedConductor?.isAdmin && (
+            <button
+              onClick={() => {
+                setMapOpenForTerritoryId(null);
+                setActiveSlotForMap(null);
+                setAuthRole((prev) =>
+                  prev === 'admin' ? 'conductor' : 'admin'
+                );
+              }}
+              className={`px-3 py-2 rounded-xl font-extrabold text-xs sm:text-sm inline-flex items-center gap-1.5 cursor-pointer transition shadow-sm ${
+                authRole === 'admin'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+              }`}
+              title={
+                authRole === 'admin'
+                  ? 'Cambiar a mi vista de Conductor'
+                  : 'Abrir el Panel de Administrador'
+              }
+            >
+              {authRole === 'admin' ? (
+                <>
+                  <User className="w-4 h-4" />
+                  <span>Mi Vista Conductor</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Panel Admin</span>
+                </>
+              )}
+            </button>
+          )}
+
           {mapOpenForTerritoryId && (
             <button
               onClick={() => setMapOpenForTerritoryId(null)}
@@ -575,11 +705,12 @@ export const App: React.FC = () => {
                   };
               setDb(saveDatabase(nextDb));
             }}
-            onAddConductor={(name, pin) => {
+            onAddConductor={(name, pin, isAdmin) => {
               const newCond: ConductorUser = {
                 id: `cond-${Date.now()}`,
                 name,
                 pin,
+                isAdmin: Boolean(isAdmin),
               };
               setDb(
                 saveDatabase({
@@ -588,7 +719,28 @@ export const App: React.FC = () => {
                 })
               );
             }}
+            onToggleConductorAdmin={(conductorId) => {
+              const target = db.conductors.find((c) => c.id === conductorId);
+              if (!target) return;
+              const adminCount = db.conductors.filter((c) => c.isAdmin).length;
+              if (target.isAdmin && adminCount <= 1) {
+                return;
+              }
+              setDb(
+                saveDatabase({
+                  ...db,
+                  conductors: db.conductors.map((c) =>
+                    c.id === conductorId ? { ...c, isAdmin: !c.isAdmin } : c
+                  ),
+                })
+              );
+            }}
             onDeleteConductor={(conductorId) => {
+              const target = db.conductors.find((c) => c.id === conductorId);
+              const adminCount = db.conductors.filter((c) => c.isAdmin).length;
+              if (target?.isAdmin && adminCount <= 1) {
+                return;
+              }
               setDb(
                 saveDatabase({
                   ...db,
@@ -726,11 +878,16 @@ export const App: React.FC = () => {
                 })
               );
             }}
-            onRestoreFullBackup={(backupDb) => setDb(saveDatabase(backupDb))}
+            onRestoreFullBackup={(backupDb) =>
+              setDb(saveDatabase(sanitizeDatabase(backupDb)))
+            }
             onLaunchStartupWizard={() => {
-              const blank = getBlankLiveDatabase();
-              setDb(saveDatabase(blank));
-              setAuthRole(null);
+              const confirmed = window.confirm(
+                '¿Desea abrir el Asistente de Configuración Inicial para empezar desde cero o configurar otra congregación? Sus datos actuales no se perderán hasta que complete el asistente.'
+              );
+              if (confirmed) {
+                setIsWizardOpen(true);
+              }
             }}
           />
         )}

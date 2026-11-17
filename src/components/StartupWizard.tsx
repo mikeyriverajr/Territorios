@@ -4,15 +4,16 @@ import {
   ArrowRight,
   Calendar,
   CheckCircle2,
+  Cloud,
   FileUp,
   FolderGit2,
-  Lock,
   Plus,
   Rocket,
   ShieldCheck,
   Sparkles,
   Trash2,
   UserPlus,
+  X,
 } from 'lucide-react';
 import {
   AppDatabase,
@@ -30,21 +31,31 @@ import {
 import {
   getDefaultNotificationTemplates,
   getDemoDatabase,
+  loadCloudConfig,
+  saveCloudConfig,
 } from '../services/storageAndSync';
 
 interface StartupWizardProps {
   onCompleteWizard: (configuredDb: AppDatabase) => void;
+  onCancel?: () => void;
 }
 
 export const StartupWizard: React.FC<StartupWizardProps> = ({
   onCompleteWizard,
+  onCancel,
 }) => {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
-  // Paso 1: Congregación y PIN de Administrador
+  // Paso 1: Congregación y Conexión Opcional a Supabase
   const [congregationName, setCongregationName] = useState<string>('');
-  const [adminPin, setAdminPin] = useState<string>('');
   const [step1Error, setStep1Error] = useState<string>('');
+  const initialCloud = loadCloudConfig();
+  const [showSupabaseSetup, setShowSupabaseSetup] = useState<boolean>(false);
+  const [supaUrl, setSupaUrl] = useState<string>(initialCloud.supabaseUrl);
+  const [supaKey, setSupaKey] = useState<string>(initialCloud.supabaseAnonKey);
+  const [supaCongId, setSupaCongId] = useState<string>(
+    initialCloud.congregationId || 'main'
+  );
 
   // Paso 2: Los 2 Archivos KML/KMZ de Google My Maps
   const [file1Name, setFile1Name] = useState<string>('');
@@ -54,10 +65,11 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
   const [housePoints, setHousePoints] = useState<HousePoint[]>([]);
   const [mapImportMsg, setMapImportMsg] = useState<string>('');
 
-  // Paso 3: Conductores y sus PINs de 4 dígitos
+  // Paso 3: Conductores, PINs y Permisos de Administrador
   const [conductors, setConductors] = useState<ConductorUser[]>([]);
   const [condNameInput, setCondNameInput] = useState<string>('');
   const [condPinInput, setCondPinInput] = useState<string>('');
+  const [condIsAdmin, setCondIsAdmin] = useState<boolean>(true);
   const [step3Error, setStep3Error] = useState<string>('');
 
   // Paso 4: Primera Salida del Programa Semanal (Opcional)
@@ -76,11 +88,13 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
       setStep1Error('Por favor escriba el nombre de la congregación.');
       return;
     }
-    if (adminPin.trim().length < 4) {
-      setStep1Error(
-        'Por favor elija un PIN de al menos 4 dígitos para el Siervo de Territorios / Admin.'
-      );
-      return;
+    if (supaUrl.trim() && supaKey.trim()) {
+      saveCloudConfig({
+        supabaseUrl: supaUrl.trim(),
+        supabaseAnonKey: supaKey.trim(),
+        enabled: true,
+        congregationId: supaCongId.trim() || 'main',
+      });
     }
     setStep1Error('');
     setStep(2);
@@ -142,8 +156,8 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
   const handleUseSampleKmlFiles = async () => {
     try {
       const [res1, res2] = await Promise.all([
-        fetch('/ejemplos/archivo1_territorios_ejemplo.kml'),
-        fetch('/ejemplos/archivo2_manzanas_y_casas_ejemplo.kml'),
+        fetch('./ejemplos/archivo1_territorios_ejemplo.kml'),
+        fetch('./ejemplos/archivo2_manzanas_y_casas_ejemplo.kml'),
       ]);
       const kml1 = await res1.text();
       const kml2 = await res2.text();
@@ -183,6 +197,7 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
       id: `cond-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       name: condNameInput.trim(),
       pin: condPinInput.trim(),
+      isAdmin: condIsAdmin,
     };
     const nextList = [...conductors, newCond];
     setConductors(nextList);
@@ -191,6 +206,7 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
     }
     setCondNameInput('');
     setCondPinInput('');
+    setCondIsAdmin(false);
     setStep3Error('');
   };
 
@@ -224,11 +240,15 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
 
   // Finalizar el Asistente y dejar la aplicación en vivo
   const handleFinishLiveSetup = () => {
+    const normalizedConductors = conductors.map((c, idx) => ({
+      ...c,
+      isAdmin: conductors.some((x) => x.isAdmin) ? Boolean(c.isAdmin) : idx === 0,
+    }));
     const finalDb: AppDatabase = {
       isConfigured: true,
       congregationName: congregationName.trim(),
-      adminPin: adminPin.trim(),
-      conductors,
+      adminPin: '',
+      conductors: normalizedConductors,
       territories,
       blocks,
       housePoints,
@@ -261,13 +281,25 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onCompleteWizard(getDemoDatabase())}
-            className="text-xs font-bold text-slate-300 hover:text-white underline cursor-pointer shrink-0"
-          >
-            O cargar con datos de demostración
-          </button>
+          <div className="flex items-center gap-3 flex-wrap">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-bold text-white inline-flex items-center gap-1 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancelar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onCompleteWizard(getDemoDatabase())}
+              className="text-xs font-bold text-slate-300 hover:text-white underline cursor-pointer shrink-0"
+            >
+              O cargar con datos de demostración
+            </button>
+          </div>
         </div>
 
         {/* Indicador visual de los 4 pasos */}
@@ -295,7 +327,7 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
 
         {/* CONTENIDO DEL PASO ACTUAL */}
         <div className="bg-white rounded-3xl shadow-2xl border-2 border-slate-200 p-6 sm:p-8">
-          {/* PASO 1: CONGREGACIÓN Y PIN DEL SIERVO DE TERRITORIOS */}
+          {/* PASO 1: CONGREGACIÓN Y CONEXIÓN OPCIONAL A SUPABASE */}
           {step === 1 && (
             <form onSubmit={handleNextFromStep1} className="space-y-5">
               <div className="space-y-1">
@@ -304,12 +336,13 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                   Paso 1 de 4
                 </span>
                 <h2 className="text-2xl font-black text-slate-900">
-                  Nombre de la Congregación y Clave de Administrador
+                  Nombre de la Congregación
                 </h2>
                 <p className="text-sm text-slate-600">
-                  El Siervo de Territorios (Administrador) será el único con
-                  acceso para subir mapas, armar el programa semanal y editar
-                  las notificaciones Push de los conductores.
+                  En el Paso 3 registrarás a los conductores y elegirás quiénes
+                  tienen permisos de Administrador (para subir mapas, armar el
+                  programa y alternar entre su vista de conductor y el panel
+                  Admin).
                 </p>
               </div>
 
@@ -327,28 +360,63 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Elige el PIN secreto del Siervo de Territorios / Admin (mínimo
-                  4 dígitos):
-                </label>
-                <div className="relative">
-                  <Lock className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={8}
-                    value={adminPin}
-                    onChange={(e) => setAdminPin(e.target.value)}
-                    placeholder="Ej. 2026"
-                    className="w-full pl-11 pr-4 py-3.5 rounded-xl border-2 border-slate-300 focus:border-blue-700 focus:outline-none font-black text-xl tracking-widest"
-                    required
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Guarda bien este PIN. En modo en vivo no se mostrará en la
-                  pantalla de inicio de sesión.
-                </p>
+              <div className="border border-slate-200 rounded-2xl bg-slate-50 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowSupabaseSetup((v) => !v)}
+                  className="w-full px-4 py-3 flex items-center justify-between text-xs font-extrabold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <Cloud className="w-4 h-4 text-indigo-600" />
+                    Conexión a la Nube / Supabase (Opcional — para otra congregación)
+                  </span>
+                  <span>{showSupabaseSetup ? '▲' : '▼'}</span>
+                </button>
+                {showSupabaseSetup && (
+                  <div className="p-4 pt-2 border-t border-slate-200 space-y-3 bg-white">
+                    <p className="text-xs text-slate-600">
+                      Si esta congregación usa su propio proyecto de Supabase o un
+                      ID distinto en <code>congregation_state</code>, ingrésalo
+                      aquí:
+                    </p>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        Supabase Project URL:
+                      </label>
+                      <input
+                        type="text"
+                        value={supaUrl}
+                        onChange={(e) => setSupaUrl(e.target.value)}
+                        placeholder="https://xyzcompany.supabase.co"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        Supabase Anon Key:
+                      </label>
+                      <input
+                        type="password"
+                        value={supaKey}
+                        onChange={(e) => setSupaKey(e.target.value)}
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1">
+                        ID de Congregación (por defecto: main):
+                      </label>
+                      <input
+                        type="text"
+                        value={supaCongId}
+                        onChange={(e) => setSupaCongId(e.target.value)}
+                        placeholder="main"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {step1Error && (
@@ -526,43 +594,57 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
 
               <form
                 onSubmit={handleAddConductor}
-                className="bg-slate-50 p-4 rounded-2xl border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-3"
+                className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3"
               >
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Nombre del Conductor:
-                  </label>
-                  <input
-                    type="text"
-                    value={condNameInput}
-                    onChange={(e) => setCondNameInput(e.target.value)}
-                    placeholder="Ej. Hno. Carlos Gómez"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-sm"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    PIN (4 dígitos):
-                  </label>
-                  <div className="flex gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      Nombre del Conductor:
+                    </label>
                     <input
                       type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      value={condPinInput}
-                      onChange={(e) => setCondPinInput(e.target.value)}
-                      placeholder="1111"
-                      className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-black text-sm text-center tracking-widest"
+                      value={condNameInput}
+                      onChange={(e) => setCondNameInput(e.target.value)}
+                      placeholder="Ej. Hno. Carlos Gómez"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white font-bold text-sm"
                     />
-                    <button
-                      type="submit"
-                      className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-black text-xs rounded-xl shrink-0 cursor-pointer"
-                    >
-                      + Agregar
-                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      PIN (4 dígitos):
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={condPinInput}
+                        onChange={(e) => setCondPinInput(e.target.value)}
+                        placeholder="1111"
+                        className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white font-black text-sm text-center tracking-widest"
+                      />
+                      <button
+                        type="submit"
+                        className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-black text-xs rounded-xl shrink-0 cursor-pointer"
+                      >
+                        + Agregar
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                <label className="inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={condIsAdmin}
+                    onChange={(e) => setCondIsAdmin(e.target.checked)}
+                    className="w-4 h-4 accent-amber-600"
+                  />
+                  <span>
+                    🛡️ Dar permisos de Administrador (Siervo de Territorios)
+                  </span>
+                </label>
               </form>
 
               {step3Error && (
@@ -573,36 +655,62 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
 
               {conductors.length === 0 ? (
                 <div className="text-center py-6 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-sm text-slate-500">
-                  Aún no has agregado conductores. Agrega al menos uno arriba
-                  (también podrás agregar más después).
+                  Aún no has agregado conductores. Agrega al menos uno con
+                  permisos de Administrador arriba.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {conductors.map((c) => (
                     <div
                       key={c.id}
-                      className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 flex items-center justify-between"
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
+                        c.isAdmin
+                          ? 'bg-amber-50 border-amber-300'
+                          : 'bg-emerald-50 border-emerald-300'
+                      }`}
                     >
                       <div>
-                        <div className="font-black text-sm text-slate-900">
-                          👤 {c.name}
+                        <div className="font-black text-sm text-slate-900 flex items-center gap-1.5 flex-wrap">
+                          <span>👤 {c.name}</span>
+                          {c.isAdmin && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-200 text-amber-950 text-[10px] font-black">
+                              🛡️ Admin
+                            </span>
+                          )}
                         </div>
-                        <div className="text-xs text-emerald-900">
+                        <div className="text-xs text-slate-700">
                           PIN asignado:{' '}
                           <strong className="font-mono">{c.pin}</strong>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setConductors(
-                            conductors.filter((item) => item.id !== c.id)
-                          )
-                        }
-                        className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConductors(
+                              conductors.map((item) =>
+                                item.id === c.id
+                                  ? { ...item, isAdmin: !item.isAdmin }
+                                  : item
+                              )
+                            )
+                          }
+                          className="px-2 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-[11px] font-bold text-slate-700 cursor-pointer"
+                        >
+                          {c.isAdmin ? 'Quitar Admin' : 'Hacer Admin'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setConductors(
+                              conductors.filter((item) => item.id !== c.id)
+                            )
+                          }
+                          className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -620,7 +728,19 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setStep(4)}
+                  onClick={() => {
+                    if (
+                      conductors.length === 0 ||
+                      !conductors.some((c) => c.isAdmin)
+                    ) {
+                      setStep3Error(
+                        'Agrega al menos un conductor con permisos de Administrador para poder administrar la app.'
+                      );
+                      return;
+                    }
+                    setStep3Error('');
+                    setStep(4);
+                  }}
                   className="px-6 py-4 bg-blue-700 hover:bg-blue-800 text-white font-black text-base rounded-2xl shadow-lg inline-flex items-center gap-2 cursor-pointer"
                 >
                   <span>Siguiente: Programa Semanal</span>
@@ -775,8 +895,14 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                   🎉 Resumen de tu configuración en vivo:
                 </div>
                 <div>
-                  • <strong>Congregación:</strong> {congregationName} (PIN Admin:{' '}
-                  <code className="font-bold">{adminPin}</code>)
+                  • <strong>Congregación:</strong> {congregationName}
+                </div>
+                <div>
+                  • <strong>Administradores:</strong>{' '}
+                  {conductors
+                    .filter((c) => c.isAdmin)
+                    .map((c) => c.name)
+                    .join(', ') || 'Primer conductor'}
                 </div>
                 <div>
                   • <strong>Mapas cargados:</strong> {territories.length}{' '}

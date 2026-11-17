@@ -24,11 +24,18 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [pin, setPin] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
 
+  const effectiveSelectedId =
+    conductors.length > 0
+      ? conductors.some((c) => c.id === selectedUserId)
+        ? selectedUserId
+        : conductors[0].id
+      : 'admin';
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPin = pin.trim();
 
-    if (selectedUserId === 'admin') {
+    if (effectiveSelectedId === 'admin') {
       if (cleanPin === adminPin) {
         setErrorMsg('');
         onLoginSuccess('admin');
@@ -38,7 +45,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
       return;
     }
 
-    const conductor = conductors.find((c) => c.id === selectedUserId);
+    const conductor = conductors.find((c) => c.id === effectiveSelectedId);
     if (!conductor) {
       setErrorMsg('Seleccione un usuario válido.');
       return;
@@ -71,33 +78,35 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </p>
           </div>
 
-          {/* Selector de Nombre (Conductores o Administrador) */}
+          {/* Selector de Nombre (Conductores; si tienen permisos de Admin pueden alternar vistas luego) */}
           <div>
             <label className="block text-xs font-extrabold uppercase tracking-wider text-slate-600 mb-1.5">
               1. ¿Quién ingresa?
             </label>
             <select
-              value={selectedUserId}
+              value={effectiveSelectedId}
               onChange={(e) => {
                 setSelectedUserId(e.target.value);
                 setErrorMsg('');
               }}
               className="w-full px-4 py-3.5 rounded-xl border-2 border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-700 focus:outline-none font-extrabold text-base text-slate-900 cursor-pointer"
             >
-              {conductors.length > 0 && (
+              {conductors.length > 0 ? (
                 <optgroup label="Conductores de Predicación">
                   {conductors.map((c) => (
                     <option key={c.id} value={c.id}>
-                      👤 {c.name} (Conductor)
+                      👤 {c.name}
+                      {c.isAdmin ? ' (🛡️ Admin / Conductor)' : ' (Conductor)'}
                     </option>
                   ))}
                 </optgroup>
+              ) : (
+                <optgroup label="Administración de Territorios">
+                  <option value="admin">
+                    🔐 Siervo de Territorios / Administrador
+                  </option>
+                </optgroup>
               )}
-              <optgroup label="Administración de Territorios">
-                <option value="admin">
-                  🔐 Siervo de Territorios / Administrador
-                </option>
-              </optgroup>
             </select>
           </div>
 

@@ -16,7 +16,9 @@ export function getGoogleMapsNavigationUrl(lat: number, lng: number): string {
  * Genera el enlace especial del grupo para que el Conductor lo comparta con los publicadores de su salida
  */
 export function getPublisherGroupLink(slotId: string): string {
-  return `${window.location.origin}/?grupo=${encodeURIComponent(slotId)}`;
+  return `${window.location.origin}${window.location.pathname}?grupo=${encodeURIComponent(
+    slotId
+  )}`;
 }
 
 /**

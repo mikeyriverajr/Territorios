@@ -11,6 +11,7 @@ export interface ConductorUser {
   name: string;           // Ej. "Hno. Carlos Gómez"
   pin: string;            // PIN corto de 4 dígitos (ej. "1111")
   phone?: string;
+  isAdmin?: boolean;      // Si tiene privilegios de Siervo de Territorios / Admin
 }
 
 export interface Block {

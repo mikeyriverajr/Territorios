@@ -7,7 +7,7 @@ import App from './App.tsx';
 // Registrar el Service Worker para soporte Offline en el campo
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
       // Ignorar errores en entorno local
     });
   });

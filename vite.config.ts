@@ -7,6 +7,7 @@ import path from 'node:path'
 const CLOUD_DB_FILE = path.resolve(process.cwd(), '.cloud-db.json')
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     tailwindcss(),
