@@ -43,6 +43,44 @@ interface ConductorPortalProps {
   onMarkNotificationRead: (notifId: string) => void;
 }
 
+const CARD_THEMES = [
+  {
+    border: 'border-blue-300',
+    headerBg: 'bg-blue-50 border-blue-200',
+    accentBar: 'bg-blue-700',
+    indexBadge: 'bg-blue-700 text-white',
+    chipBg: 'bg-white border-blue-200 text-blue-950',
+  },
+  {
+    border: 'border-emerald-300',
+    headerBg: 'bg-emerald-50 border-emerald-200',
+    accentBar: 'bg-emerald-600',
+    indexBadge: 'bg-emerald-700 text-white',
+    chipBg: 'bg-white border-emerald-200 text-emerald-950',
+  },
+  {
+    border: 'border-amber-300',
+    headerBg: 'bg-amber-50 border-amber-200',
+    accentBar: 'bg-amber-500',
+    indexBadge: 'bg-amber-600 text-white',
+    chipBg: 'bg-white border-amber-200 text-amber-950',
+  },
+  {
+    border: 'border-violet-300',
+    headerBg: 'bg-violet-50 border-violet-200',
+    accentBar: 'bg-violet-600',
+    indexBadge: 'bg-violet-700 text-white',
+    chipBg: 'bg-white border-violet-200 text-violet-950',
+  },
+  {
+    border: 'border-cyan-300',
+    headerBg: 'bg-cyan-50 border-cyan-200',
+    accentBar: 'bg-cyan-600',
+    indexBadge: 'bg-cyan-700 text-white',
+    chipBg: 'bg-white border-cyan-200 text-cyan-950',
+  },
+];
+
 export const ConductorPortal: React.FC<ConductorPortalProps> = ({
   conductor,
   schedule,
@@ -57,17 +95,60 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
 }) => {
   const [copiedSlotId, setCopiedSlotId] = useState<string | null>(null);
 
-  // Territorios asignados directamente al usuario (territorios personales / independientes)
-  const myPersonalTerritories = territories.filter(
-    (t) =>
-      t.assignedToId === conductor.id ||
-      (t.assignedToName && t.assignedToName === conductor.name)
+  // Salidas del programa asignadas a este conductor (ordenadas por fecha y hora)
+  const myAssignedSlots = [...schedule]
+    .filter(
+      (s) => s.conductorId === conductor.id || s.conductorName === conductor.name
+    )
+    .sort((a, b) =>
+      `${a.date || ''} ${a.time || ''}`.localeCompare(
+        `${b.date || ''} ${b.time || ''}`
+      )
+    );
+
+  // Territorios ya cubiertos por una salida programada de este conductor
+  const slotCoveredTerritoryIds = new Set(
+    myAssignedSlots.flatMap((s) => s.territoryIds || [])
   );
 
-  // Salidas del programa asignadas a este conductor
-  const myAssignedSlots = schedule.filter(
-    (s) => s.conductorId === conductor.id || s.conductorName === conductor.name
+  // Territorios personales / directos que no están ya dentro de una salida programada
+  const standalonePersonalTerritories = territories.filter(
+    (t) =>
+      !slotCoveredTerritoryIds.has(t.id) &&
+      (t.assignedToId === conductor.id ||
+        (t.assignedToName && t.assignedToName === conductor.name))
   );
+
+  type UnifiedAssignment =
+    | {
+        kind: 'slot';
+        key: string;
+        slot: ScheduleSlot;
+        itemTerritories: Territory[];
+      }
+    | {
+        kind: 'personal';
+        key: string;
+        territory: Territory;
+        itemTerritories: Territory[];
+      };
+
+  const unifiedAssignments: UnifiedAssignment[] = [
+    ...myAssignedSlots.map((slot) => ({
+      kind: 'slot' as const,
+      key: `slot-${slot.id}`,
+      slot,
+      itemTerritories: territories.filter((t) =>
+        slot.territoryIds.includes(t.id)
+      ),
+    })),
+    ...standalonePersonalTerritories.map((territory) => ({
+      kind: 'personal' as const,
+      key: `personal-${territory.id}`,
+      territory,
+      itemTerritories: [territory],
+    })),
+  ];
 
   // Notificaciones Push dirigidas a este conductor
   const myUnreadNotifications = pushNotifications.filter(
@@ -150,86 +231,220 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
         </div>
       )}
 
-      {/* Territorios Personales / Asignación Directa */}
-      {myPersonalTerritories.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-500 px-1">
-            Mis Territorios Asignados ({myPersonalTerritories.length})
-          </h2>
+      {/* Lista unificada y cohesiva de asignaciones */}
+      {unifiedAssignments.length === 0 ? (
+        <div className="bg-white rounded-2xl border-2 border-slate-200 p-8 text-center">
+          <div className="text-lg font-black text-slate-800">
+            No tienes asignaciones activas.
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-500">
+              Tus Asignaciones ({unifiedAssignments.length})
+            </h2>
+          </div>
 
-          {myPersonalTerritories.map((t) => {
-            const tBlocks = blocks.filter((b) => b.territoryId === t.id);
-            const completedBlocks = tBlocks.filter(
+          {unifiedAssignments.map((item, idx) => {
+            const theme = CARD_THEMES[idx % CARD_THEMES.length];
+            const itemTerritoryIds = item.itemTerritories.map((t) => t.id);
+            const itemBlocks = blocks.filter((b) =>
+              itemTerritoryIds.includes(b.territoryId)
+            );
+            const completedBlocks = itemBlocks.filter(
               (b) => b.status === 'completada'
             );
-            const tPoints = housePoints.filter((p) => p.territoryId === t.id);
-            const pendingNotAtHome = tPoints.filter(
+            const itemPoints = housePoints.filter((p) =>
+              itemTerritoryIds.includes(p.territoryId)
+            );
+            const pendingNotAtHome = itemPoints.filter(
               (p) => p.status === 'no_en_casa'
             );
-            const noVisitarList = tPoints.filter(
+            const noVisitarList = itemPoints.filter(
               (p) => p.category === 'no_visitar'
             );
 
+            const isSlot = item.kind === 'slot';
+            const slot = isSlot ? item.slot : null;
+            const personalTerr = !isSlot ? item.territory : null;
+            const assignmentDate = isSlot
+              ? slot?.date
+              : personalTerr?.assignedAt || personalTerr?.startedAt;
+            const assignmentNotes = isSlot
+              ? slot?.notes
+              : personalTerr?.assignmentNotes;
+            const territoryTitle =
+              item.itemTerritories.map((t) => t.name).join(', ') ||
+              'Territorio asignado';
+
             return (
               <div
-                key={t.id}
-                className="bg-white rounded-3xl border-2 border-blue-200 shadow-sm overflow-hidden"
+                key={item.key}
+                className={`bg-white rounded-3xl border-2 ${theme.border} shadow-md overflow-hidden flex flex-col`}
               >
-                <div className="bg-blue-50 px-5 py-3.5 border-b border-blue-200 flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-black text-base sm:text-lg text-slate-900">
-                    {t.name}
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 bg-white border border-blue-200 text-blue-950 font-bold px-3 py-1 rounded-xl text-xs">
-                    <Calendar className="w-3.5 h-3.5 text-blue-700" />
-                    Asignado: {t.assignedAt || t.startedAt || 'Activo'}
-                  </span>
-                </div>
+                {/* Franja superior distintiva */}
+                <div className={`h-2 w-full ${theme.accentBar}`} />
 
-                <div className="p-5 space-y-4">
-                  <div className="flex flex-wrap gap-2 text-xs sm:text-sm font-bold">
-                    {tBlocks.length > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        Manzanas: {completedBlocks.length}/{tBlocks.length}
+                {/* Encabezado cohesivo */}
+                <div
+                  className={`${theme.headerBg} px-5 py-4 border-b flex flex-wrap items-center justify-between gap-2.5`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`px-2.5 py-1 rounded-lg font-black text-xs uppercase tracking-wide ${theme.indexBadge}`}
+                    >
+                      Asignación #{idx + 1}
+                    </span>
+
+                    {assignmentDate && (
+                      <span
+                        className={`inline-flex items-center gap-1.5 border font-black px-3 py-1 rounded-xl text-xs sm:text-sm ${theme.chipBg}`}
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        {assignmentDate}
                       </span>
                     )}
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-300">
-                      <Home className="w-4 h-4 text-amber-600" />
-                      No en casa: {pendingNotAtHome.length}
-                    </span>
-                    {noVisitarList.length > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-900 border border-red-300 font-extrabold">
-                        <ShieldAlert className="w-4 h-4 text-red-600" />
-                        NO VISITAR: {noVisitarList.length}
+
+                    {isSlot && slot ? (
+                      <span className="inline-flex items-center gap-1.5 bg-slate-900 text-white font-black px-3 py-1 rounded-xl text-xs sm:text-sm">
+                        <Clock className="w-3.5 h-3.5 text-amber-300" />
+                        {slot.dayName} — {slot.time} hs
+                      </span>
+                    ) : (
+                      <span
+                        className={`inline-flex items-center gap-1 border font-extrabold px-2.5 py-1 rounded-xl text-xs ${theme.chipBg}`}
+                      >
+                        Territorio Personal
                       </span>
                     )}
                   </div>
 
-                  {t.assignmentNotes && (
-                    <div className="text-xs bg-blue-50 border border-blue-200 text-blue-950 px-3.5 py-2 rounded-xl">
-                      {t.assignmentNotes}
+                  <div className="font-black text-base sm:text-lg text-slate-900">
+                    {territoryTitle}
+                  </div>
+                </div>
+
+                {/* Cuerpo unificado */}
+                <div className="p-5 space-y-4">
+                  <div
+                    className={`grid grid-cols-1 ${
+                      isSlot ? 'md:grid-cols-2' : ''
+                    } gap-3.5`}
+                  >
+                    {isSlot && slot && (
+                      <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 flex items-center justify-between gap-3">
+                        <div className="font-black text-sm sm:text-base text-slate-900 flex items-start gap-1.5 min-w-0">
+                          <MapPin className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                          <span className="truncate">
+                            {slot.meetingPointName}
+                          </span>
+                        </div>
+                        <a
+                          href={slot.meetingPointUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 inline-flex items-center gap-1.5 bg-white hover:bg-slate-100 text-blue-800 border border-blue-300 font-bold py-2 px-3 rounded-xl text-xs transition"
+                        >
+                          <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                          Maps
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
+
+                    <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-2.5">
+                      <div className="flex flex-wrap gap-2 text-xs font-bold">
+                        {itemBlocks.length > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            Manzanas: {completedBlocks.length}/
+                            {itemBlocks.length}
+                          </span>
+                        )}
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-300">
+                          <Home className="w-3.5 h-3.5 text-amber-600" />
+                          No en casa: {pendingNotAtHome.length}
+                        </span>
+                        {noVisitarList.length > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-900 border border-red-300 font-extrabold">
+                            <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                            NO VISITAR: {noVisitarList.length}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                        {item.itemTerritories.map((t) => (
+                          <div
+                            key={t.id}
+                            className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2.5 py-1"
+                          >
+                            <span className="text-xs font-extrabold text-slate-800">
+                              {t.name}:{' '}
+                              {t.status === 'completado'
+                                ? '✓ Completado'
+                                : 'En curso'}
+                            </span>
+                            {t.status !== 'completado' && (
+                              <button
+                                onClick={() =>
+                                  onCompleteWholeTerritory(t.id, conductor.name)
+                                }
+                                className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-md cursor-pointer"
+                              >
+                                <Sparkles className="w-3 h-3" />
+                                Completar
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {assignmentNotes && (
+                    <div className="text-xs sm:text-sm bg-slate-100 border border-slate-200 text-slate-800 px-3.5 py-2 rounded-xl font-medium">
+                      {assignmentNotes}
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-xs font-extrabold text-slate-700">
-                      {t.status === 'completado' ? '✓ Completado' : 'En curso'}
-                    </span>
-                    {t.status !== 'completado' && (
-                      <button
-                        onClick={() =>
-                          onCompleteWholeTerritory(t.id, conductor.name)
-                        }
-                        className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        Completar
-                      </button>
-                    )}
-                  </div>
+                  {isSlot && slot && (
+                    <div className="bg-amber-50/90 border border-amber-300 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs font-black uppercase text-amber-900 flex items-center gap-1.5">
+                        <Link2 className="w-4 h-4" />
+                        Link para Publicadores
+                      </div>
 
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => handleCopyPublisherLink(slot.id)}
+                          className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-950 border border-amber-400 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          {copiedSlotId === slot.id ? '¡Copiado!' : 'Copiar'}
+                        </button>
+
+                        <button
+                          onClick={() => handleSharePublisherLinkNative(slot)}
+                          className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                          Compartir
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* BOTÓN PRINCIPAL */}
                   <button
-                    onClick={() => onOpenTerritoryMap(t.id)}
+                    onClick={() => {
+                      if (isSlot && slot) {
+                        onOpenSlotMap(slot);
+                      } else if (personalTerr) {
+                        onOpenTerritoryMap(personalTerr.id);
+                      }
+                    }}
                     className="w-full py-4 px-5 bg-blue-700 hover:bg-blue-800 text-white font-black text-base sm:text-lg rounded-2xl shadow-md flex items-center justify-center gap-2.5 cursor-pointer transition"
                   >
                     <MapPin className="w-6 h-6 text-amber-300 shrink-0" />
@@ -241,178 +456,6 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
           })}
         </div>
       )}
-
-      {/* Lista de días asignados a este conductor */}
-      {myAssignedSlots.length === 0 && myPersonalTerritories.length === 0 ? (
-        <div className="bg-white rounded-2xl border-2 border-slate-200 p-8 text-center">
-          <div className="text-lg font-black text-slate-800">
-            No tienes salidas ni territorios asignados.
-          </div>
-        </div>
-      ) : myAssignedSlots.length > 0 ? (
-        <div className="space-y-5">
-          <h2 className="text-sm font-extrabold uppercase tracking-wider text-slate-500 px-1">
-            Salidas Asignadas ({myAssignedSlots.length})
-          </h2>
-
-          {myAssignedSlots.map((slot) => {
-            const slotTerritories = territories.filter((t) =>
-              slot.territoryIds.includes(t.id)
-            );
-            const slotBlocks = blocks.filter((b) =>
-              slot.territoryIds.includes(b.territoryId)
-            );
-            const completedBlocks = slotBlocks.filter(
-              (b) => b.status === 'completada'
-            );
-            const slotPoints = housePoints.filter((p) =>
-              slot.territoryIds.includes(p.territoryId)
-            );
-            const pendingNotAtHome = slotPoints.filter(
-              (p) => p.status === 'no_en_casa'
-            );
-            const noVisitarList = slotPoints.filter(
-              (p) => p.category === 'no_visitar'
-            );
-
-            return (
-              <div
-                key={slot.id}
-                className="bg-white rounded-3xl border-2 border-slate-200 shadow-sm overflow-hidden"
-              >
-                {/* Encabezado de la salida con Fecha */}
-                <div className="bg-slate-100 px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {slot.date && (
-                      <span className="inline-flex items-center gap-1.5 bg-white border border-slate-300 text-slate-900 font-black px-3 py-1.5 rounded-xl text-xs sm:text-sm">
-                        <Calendar className="w-4 h-4 text-blue-700" />
-                        {slot.date}
-                      </span>
-                    )}
-                    <span className="inline-flex items-center gap-1.5 bg-blue-900 text-white font-black px-3.5 py-1.5 rounded-xl text-sm sm:text-base">
-                      <Clock className="w-4 h-4 text-amber-300" />
-                      {slot.dayName} — {slot.time} hs
-                    </span>
-                  </div>
-                  <span className="text-xs sm:text-sm font-extrabold text-slate-700">
-                    {slotTerritories.map((t) => t.name).join(', ')}
-                  </span>
-                </div>
-
-                <div className="p-5 space-y-4">
-                  {/* Punto de encuentro y Resumen */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 flex flex-col justify-between gap-3">
-                      <div className="font-black text-base text-slate-900 flex items-start gap-1.5">
-                        <MapPin className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                        <span>{slot.meetingPointName}</span>
-                      </div>
-                      <a
-                        href={slot.meetingPointUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-100 text-blue-800 border-2 border-blue-200 font-bold py-2 px-3 rounded-xl text-xs sm:text-sm transition"
-                      >
-                        <Navigation className="w-4 h-4 text-blue-600" />
-                        Google Maps
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-
-                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2.5">
-                      <div className="flex flex-wrap gap-2 text-xs sm:text-sm font-bold">
-                        {slotBlocks.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                            Manzanas: {completedBlocks.length}/
-                            {slotBlocks.length}
-                          </span>
-                        )}
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-300">
-                          <Home className="w-4 h-4 text-amber-600" />
-                          No en casa: {pendingNotAtHome.length}
-                        </span>
-                        {noVisitarList.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-900 border border-red-300 font-extrabold">
-                            <ShieldAlert className="w-4 h-4 text-red-600" />
-                            NO VISITAR: {noVisitarList.length}
-                          </span>
-                        )}
-                      </div>
-
-                      {slotTerritories.map((t) => (
-                        <div
-                          key={t.id}
-                          className="flex items-center justify-between pt-1"
-                        >
-                          <span className="text-xs font-extrabold text-slate-700">
-                            {t.name}:{' '}
-                            {t.status === 'completado'
-                              ? '✓ Completado'
-                              : 'En curso'}
-                          </span>
-                          {t.status !== 'completado' && (
-                            <button
-                              onClick={() =>
-                                onCompleteWholeTerritory(t.id, conductor.name)
-                              }
-                              className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg cursor-pointer"
-                            >
-                              <Sparkles className="w-3.5 h-3.5" />
-                              Completar
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {slot.notes && (
-                    <div className="text-xs sm:text-sm bg-blue-50 border border-blue-200 text-blue-950 px-4 py-2.5 rounded-xl">
-                      {slot.notes}
-                    </div>
-                  )}
-
-                  {/* Link para Publicadores (conciso) */}
-                  <div className="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="text-xs font-black uppercase text-amber-900 flex items-center gap-1.5">
-                      <Link2 className="w-4 h-4" />
-                      Link para Publicadores
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => handleCopyPublisherLink(slot.id)}
-                        className="px-3 py-2 rounded-xl bg-white hover:bg-amber-100 text-amber-950 border-2 border-amber-400 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        {copiedSlotId === slot.id ? '¡Copiado!' : 'Copiar'}
-                      </button>
-
-                      <button
-                        onClick={() => handleSharePublisherLinkNative(slot)}
-                        className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        Compartir
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* BOTÓN PRINCIPAL DEL CONDUCTOR PARA ABRIR EL MAPA */}
-                  <button
-                    onClick={() => onOpenSlotMap(slot)}
-                    className="w-full py-4 px-5 bg-blue-700 hover:bg-blue-800 text-white font-black text-base sm:text-lg rounded-2xl shadow-md flex items-center justify-center gap-2.5 cursor-pointer transition"
-                  >
-                    <MapPin className="w-6 h-6 text-amber-300 shrink-0" />
-                    <span>ABRIR EL MAPA</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
     </div>
   );
 };

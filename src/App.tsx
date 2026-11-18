@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, RefreshCw, ShieldCheck, User, Wifi, WifiOff } from 'lucide-react';
+import { LogOut, RefreshCw, ShieldCheck, User } from 'lucide-react';
 import {
   AppDatabase,
   Block,
@@ -8,6 +8,7 @@ import {
   HousePoint,
   HousePointCategory,
   HousePointStatus,
+  MeetingLocation,
   PushNotificationItem,
   PushNotificationTemplate,
   ScheduleSlot,
@@ -127,9 +128,6 @@ export const App: React.FC = () => {
     null
   );
 
-  const [isOnline, setIsOnline] = useState<boolean>(
-    typeof navigator !== 'undefined' ? navigator.onLine : true
-  );
   const [initialCloudCheckDone, setInitialCloudCheckDone] = useState<boolean>(
     () => Boolean(loadDatabase().isConfigured)
   );
@@ -189,19 +187,15 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handleOnline = () => {
-      setIsOnline(true);
       setDb((prev) => {
         if (prev.offlineQueue.length === 0) return prev;
         return saveDatabase({ ...prev, offlineQueue: [] });
       });
     };
-    const handleOffline = () => setIsOnline(false);
 
     window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
     return () => {
       window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
@@ -540,17 +534,6 @@ export const App: React.FC = () => {
               </div>
               <span className="font-black text-base">{db.congregationName}</span>
             </div>
-            <div className="text-xs text-slate-300 flex items-center gap-1.5">
-              {isOnline ? (
-                <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
-                  <Wifi className="w-3.5 h-3.5" /> Nube Conectada
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-amber-400 font-bold">
-                  <WifiOff className="w-3.5 h-3.5" /> Modo Offline
-                </span>
-              )}
-            </div>
           </header>
 
           <LoginView
@@ -591,17 +574,6 @@ export const App: React.FC = () => {
               ) : (
                 <span className="inline-flex items-center gap-1 text-blue-300 font-bold">
                   <User className="w-3 h-3" /> Conductor: {loggedConductor?.name}
-                </span>
-              )}
-              <span>•</span>
-              {isOnline ? (
-                <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
-                  <Wifi className="w-3 h-3" /> Nube Activa
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-amber-400 font-bold">
-                  <WifiOff className="w-3 h-3" /> Sin señal (
-                  {db.offlineQueue.length})
                 </span>
               )}
             </div>
@@ -822,10 +794,24 @@ export const App: React.FC = () => {
                 ...slotData,
                 id: `sched-${Date.now()}`,
               };
+              const assignDate = slotData.date || new Date().toISOString().slice(0, 10);
+              const slotTerritorySet = new Set(slotData.territoryIds);
               setDb(
                 saveDatabase({
                   ...db,
                   schedule: [...db.schedule, newSlot],
+                  territories: db.territories.map((t) =>
+                    slotTerritorySet.has(t.id)
+                      ? {
+                          ...t,
+                          assignedToId: slotData.conductorId,
+                          assignedToName: slotData.conductorName,
+                          assignedAt: assignDate,
+                          lastConductor: slotData.conductorName,
+                          startedAt: t.startedAt || assignDate,
+                        }
+                      : t
+                  ),
                 })
               );
             }}
@@ -838,12 +824,35 @@ export const App: React.FC = () => {
               );
             }}
             onUpdateScheduleSlot={(updatedSlot) => {
+              const assignDate =
+                updatedSlot.date || new Date().toISOString().slice(0, 10);
+              const slotTerritorySet = new Set(updatedSlot.territoryIds);
               setDb(
                 saveDatabase({
                   ...db,
                   schedule: db.schedule.map((s) =>
                     s.id === updatedSlot.id ? updatedSlot : s
                   ),
+                  territories: db.territories.map((t) =>
+                    slotTerritorySet.has(t.id)
+                      ? {
+                          ...t,
+                          assignedToId: updatedSlot.conductorId,
+                          assignedToName: updatedSlot.conductorName,
+                          assignedAt: assignDate,
+                          lastConductor: updatedSlot.conductorName,
+                          startedAt: t.startedAt || assignDate,
+                        }
+                      : t
+                  ),
+                })
+              );
+            }}
+            onUpdateCustomLocations={(locations: MeetingLocation[]) => {
+              setDb(
+                saveDatabase({
+                  ...db,
+                  customLocations: locations,
                 })
               );
             }}

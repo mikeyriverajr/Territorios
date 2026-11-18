@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import {
   Check,
-  Download,
   Edit3,
   Layers,
   MapPin,
@@ -13,22 +12,15 @@ import {
 } from 'lucide-react';
 import {
   Block,
-  HousePoint,
   LatLngTuple,
   Territory,
   TerritoryType,
 } from '../types/territory';
-import {
-  exportMapsToGoogleKml,
-  downloadKmlFile,
-  getPolygonCentroid,
-} from '../services/kmlImporter';
+import { getPolygonCentroid } from '../services/kmlImporter';
 
 interface MapEditorViewProps {
   territories: Territory[];
   blocks: Block[];
-  housePoints?: HousePoint[];
-  congregationName?: string;
   onSaveTerritory: (updated: Territory) => void;
   onCreateTerritory: (newTerr: Territory) => void;
   onDeleteTerritory: (territoryId: string) => void;
@@ -40,8 +32,6 @@ interface MapEditorViewProps {
 export const MapEditorView: React.FC<MapEditorViewProps> = ({
   territories,
   blocks,
-  housePoints = [],
-  congregationName = '',
   onSaveTerritory,
   onCreateTerritory,
   onDeleteTerritory,
@@ -499,30 +489,6 @@ export const MapEditorView: React.FC<MapEditorViewProps> = ({
           >
             <Plus className="w-3.5 h-3.5" />
             Nueva Manzana
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              const kml = exportMapsToGoogleKml({
-                congregationName,
-                territories,
-                blocks,
-                housePoints,
-              });
-              const safeCong = (congregationName || 'Territorios')
-                .trim()
-                .replace(/\s+/g, '_');
-              downloadKmlFile(kml, `${safeCong}_Google_Maps.kml`);
-              setSavedToast(
-                '✅ Archivo .KML exportado. Impórtalo en Google My Maps o Google Earth.'
-              );
-              setTimeout(() => setSavedToast(''), 4000);
-            }}
-            className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs flex items-center gap-1 cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Exportar KML (Google Maps)
           </button>
 
           <button

@@ -28,6 +28,7 @@ import {
   Block,
   ConductorUser,
   HousePoint,
+  MeetingLocation,
   PushNotificationTemplate,
   ScheduleSlot,
   Territory,
@@ -122,6 +123,7 @@ interface AdminDashboardProps {
     conductorId: string,
     assignmentNotes?: string
   ) => void;
+  onUpdateCustomLocations: (locations: MeetingLocation[]) => void;
   onUpdateCongregationSettings: (name: string, pin: string) => void;
   onRestoreFullBackup: (backupDb: AppDatabase) => void;
   onLaunchStartupWizard?: () => void;
@@ -148,6 +150,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onCompleteWholeTerritory,
   onResetTerritory,
   onAssignTerritory,
+  onUpdateCustomLocations,
   onUpdateCongregationSettings,
   onRestoreFullBackup,
   onLaunchStartupWizard,
@@ -211,6 +214,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [assignmentNotesDraft, setAssignmentNotesDraft] = useState<
     Record<string, string>
   >({});
+  const [showLocationManager, setShowLocationManager] =
+    useState<boolean>(false);
+  const [newLocName, setNewLocName] = useState<string>('');
+  const [newLocUrl, setNewLocUrl] = useState<string>('');
+  const [confirmedReassignments, setConfirmedReassignments] = useState<
+    Record<string, string>
+  >({});
+  const [territorySortBy, setTerritorySortBy] = useState<
+    'number' | 'oldest_worked' | 'recent_completed' | 'status' | 'assignee'
+  >('number');
   const hasEnvSupabase = getEnvCloudConfig().enabled;
 
   const handleExportGoogleMapsKml = (
@@ -305,6 +318,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setMeetingPointName('');
     setMeetingPointUrl('');
     setSelectedTerritoryIds([]);
+    setConfirmedReassignments({});
     setSlotNotes('');
   };
 
@@ -319,6 +333,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setMeetingPointName(slot.meetingPointName);
     setMeetingPointUrl(slot.meetingPointUrl);
     setSelectedTerritoryIds(slot.territoryIds);
+    setConfirmedReassignments({});
     setSlotNotes(slot.notes || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -328,6 +343,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const cond = db.conductors.find((c) => c.id === selectedConductorId);
     if (!cond || !meetingPointName.trim() || selectedTerritoryIds.length === 0)
       return;
+
+    const conflictingTerritories = selectedTerritoryIds
+      .map((id) => db.territories.find((t) => t.id === id))
+      .filter((t): t is Territory => {
+        if (!t) return false;
+        if (confirmedReassignments[t.id] === cond.id) return false;
+        return (
+          (Boolean(t.assignedToId) && t.assignedToId !== cond.id) ||
+          (Boolean(t.assignedToName) && t.assignedToName !== cond.name)
+        );
+      });
+
+    if (conflictingTerritories.length > 0) {
+      const detail = conflictingTerritories
+        .map(
+          (t) =>
+            `• ${t.name} (asignado actualmente a ${t.assignedToName || 'otro hermano'})`
+        )
+        .join('\n');
+      const confirmed = window.confirm(
+        `⚠️ Atención: los siguientes territorios pertenecen a otra persona:\n${detail}\n\n¿Desea reasignarlos a ${cond.name}?`
+      );
+      if (!confirmed) return;
+    }
 
     const payload: Omit<ScheduleSlot, 'id'> = {
       dayName: `${dayOfWeek} ${shiftLabel}`.trim(),
@@ -356,36 +395,75 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [copiedScheduleToast, setCopiedScheduleToast] = useState<string | null>(null);
 
-  // Lugares habituales guardados para autocompletar con 1 clic
-  const savedLocations = useMemo(() => {
-    const defaults = [
-      {
-        name: 'Arroyo Porã',
-        url: 'https://maps.app.goo.gl/GFt712zxPGqS6JVy6',
-      },
-      {
-        name: 'Salón del Reino',
-        url: '',
-      },
-    ];
-    const fromSchedule = (db.schedule || [])
-      .filter((s) => s && s.meetingPointName && s.meetingPointName.trim())
-      .map((s) => ({
-        name: s.meetingPointName.trim(),
-        url: s.meetingPointUrl?.trim() || '',
-      }));
+  const customLocations = useMemo(
+    () => db.customLocations || [],
+    [db.customLocations]
+  );
 
-    // Nota: "Map" está sombreado por el ícono de lucide-react, por eso se usa un objeto simple
-    const locMap: Record<string, string> = {};
-    for (const item of [...defaults, ...fromSchedule]) {
-      if (!(item.name in locMap)) {
-        locMap[item.name] = item.url;
-      } else if (!locMap[item.name] && item.url) {
-        locMap[item.name] = item.url;
+  const getTerritoryLastWorkedDate = (t: Territory): string => {
+    const dates: string[] = [];
+    if (t.completedAt) dates.push(t.completedAt);
+    if (t.lastCompletedAt) dates.push(t.lastCompletedAt);
+    db.s13History
+      .filter((r) => r.territoryId === t.id && r.completedAt)
+      .forEach((r) => dates.push(r.completedAt));
+    db.blocks
+      .filter((b) => b.territoryId === t.id)
+      .forEach((b) => {
+        const d = b.completedAt || b.lastCompletedAt || b.lastWorkedAt;
+        if (d) dates.push(d);
+      });
+    if (dates.length === 0) return '';
+    return dates.sort((a, b) => b.localeCompare(a))[0];
+  };
+
+  const getTerritoryLastCompletedDate = (t: Territory): string => {
+    const latestS13 = db.s13History.find((r) => r.territoryId === t.id);
+    return (
+      t.completedAt ||
+      t.lastCompletedAt ||
+      latestS13?.completedAt ||
+      ''
+    );
+  };
+
+  const sortedTerritoriesForTab = useMemo(() => {
+    const list = [...db.territories];
+    list.sort((a, b) => {
+      if (territorySortBy === 'oldest_worked') {
+        const da = getTerritoryLastWorkedDate(a);
+        const dbDate = getTerritoryLastWorkedDate(b);
+        if (!da && dbDate) return -1;
+        if (da && !dbDate) return 1;
+        const cmp = da.localeCompare(dbDate);
+        return cmp !== 0 ? cmp : a.number - b.number;
       }
-    }
-    return Object.keys(locMap).map((name) => ({ name, url: locMap[name] }));
-  }, [db.schedule]);
+      if (territorySortBy === 'recent_completed') {
+        const da = getTerritoryLastCompletedDate(a);
+        const dbDate = getTerritoryLastCompletedDate(b);
+        if (!da && dbDate) return 1;
+        if (da && !dbDate) return -1;
+        const cmp = dbDate.localeCompare(da);
+        return cmp !== 0 ? cmp : a.number - b.number;
+      }
+      if (territorySortBy === 'status') {
+        if (a.status !== b.status) {
+          return a.status === 'en_curso' ? -1 : 1;
+        }
+        return a.number - b.number;
+      }
+      if (territorySortBy === 'assignee') {
+        const aa = a.assignedToName || '';
+        const ab = b.assignedToName || '';
+        if (!aa && ab) return 1;
+        if (aa && !ab) return -1;
+        const cmp = aa.localeCompare(ab);
+        return cmp !== 0 ? cmp : a.number - b.number;
+      }
+      return a.number - b.number;
+    });
+    return list;
+  }, [db.territories, db.blocks, db.s13History, territorySortBy]);
 
   const sortedSchedule = useMemo(() => {
     return [...(db.schedule || [])]
@@ -450,6 +528,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setMeetingPointName(slot.meetingPointName);
     setMeetingPointUrl(slot.meetingPointUrl);
     setSelectedTerritoryIds(slot.territoryIds);
+    setConfirmedReassignments({});
     setSlotNotes(slot.notes || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     setCopiedScheduleToast(`📋 Salida clonada (+7 días: ${nextDate}). Modifique los datos y pulse Publicar Salida`);
@@ -780,38 +859,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <label className="block text-xs font-extrabold uppercase text-slate-600">
                       Ubicación:
                     </label>
-                    {savedLocations.length > 0 && (
-                      <select
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (!val) return;
-                          const found = savedLocations.find((l) => l.name === val);
-                          if (found) {
-                            setMeetingPointName(found.name);
-                            if (found.url) setMeetingPointUrl(found.url);
-                          }
-                          e.target.value = '';
-                        }}
-                        className="text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 cursor-pointer"
-                        defaultValue=""
-                      >
-                        <option value="" disabled>📍 Lugares habituales...</option>
-                        {savedLocations.map((loc) => (
-                          <option key={loc.name} value={loc.name}>
-                            {loc.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowLocationManager((v) => !v)}
+                      className="text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded px-2 py-0.5 cursor-pointer"
+                    >
+                      {showLocationManager ? 'Cerrar lista' : '✏️ Personalizar'}
+                    </button>
                   </div>
-                  <input
-                    type="text"
+                  <select
                     value={meetingPointName}
-                    onChange={(e) => setMeetingPointName(e.target.value)}
-                    placeholder="Ej. Arroyo Porã"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setMeetingPointName(val);
+                      const found = customLocations.find(
+                        (l) => l.name === val
+                      );
+                      if (found) {
+                        setMeetingPointUrl(found.url || '');
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
                     required
-                  />
+                  >
+                    <option value="" disabled>
+                      Elegir ubicación...
+                    </option>
+                    {customLocations.map((loc) => (
+                      <option key={loc.id} value={loc.name}>
+                        {loc.name}
+                      </option>
+                    ))}
+                    {meetingPointName &&
+                      !customLocations.some(
+                        (l) => l.name === meetingPointName
+                      ) && (
+                        <option value={meetingPointName}>
+                          {meetingPointName}
+                        </option>
+                      )}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
@@ -827,7 +914,83 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Selector compacto de territorios */}
+              {showLocationManager && (
+                <div className="bg-slate-50 border border-blue-200 rounded-2xl p-3.5 space-y-3">
+                  <div className="text-xs font-black uppercase text-blue-900">
+                    Lista Personalizable de Ubicaciones ({customLocations.length})
+                  </div>
+
+                  {customLocations.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {customLocations.map((loc) => (
+                        <span
+                          key={loc.id}
+                          className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-800"
+                        >
+                          <span>{loc.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = customLocations.filter(
+                                (x) => x.id !== loc.id
+                              );
+                              onUpdateCustomLocations(next);
+                              if (meetingPointName === loc.name) {
+                                setMeetingPointName('');
+                                setMeetingPointUrl('');
+                              }
+                            }}
+                            className="w-5 h-5 rounded hover:bg-red-100 text-red-600 flex items-center justify-center cursor-pointer font-black"
+                            title="Eliminar ubicación"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                    <input
+                      type="text"
+                      value={newLocName}
+                      onChange={(e) => setNewLocName(e.target.value)}
+                      placeholder="Nombre (ej. Plaza Norte)"
+                      className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                    />
+                    <input
+                      type="text"
+                      value={newLocUrl}
+                      onChange={(e) => setNewLocUrl(e.target.value)}
+                      placeholder="Link Google Maps (opcional)"
+                      className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cleanName = newLocName.trim();
+                        if (!cleanName) return;
+                        const cleanUrl = newLocUrl.trim();
+                        const newLoc: MeetingLocation = {
+                          id: `loc-${Date.now()}`,
+                          name: cleanName,
+                          url: cleanUrl || undefined,
+                        };
+                        onUpdateCustomLocations([...customLocations, newLoc]);
+                        setMeetingPointName(cleanName);
+                        setMeetingPointUrl(cleanUrl);
+                        setNewLocName('');
+                        setNewLocUrl('');
+                      }}
+                      className="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-black text-xs cursor-pointer"
+                    >
+                      + Agregar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Selector enriquecido de territorios */}
               <div>
                 <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                   Territorio(s):
@@ -838,6 +1001,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     onChange={(e) => {
                       const id = e.target.value;
                       if (id && !selectedTerritoryIds.includes(id)) {
+                        const terr = db.territories.find((t) => t.id === id);
+                        const cond = db.conductors.find(
+                          (c) => c.id === selectedConductorId
+                        );
+                        if (terr && cond) {
+                          const assignedToOther =
+                            (Boolean(terr.assignedToId) &&
+                              terr.assignedToId !== cond.id) ||
+                            (Boolean(terr.assignedToName) &&
+                              terr.assignedToName !== cond.name);
+                          if (assignedToOther) {
+                            const confirmed = window.confirm(
+                              `⚠️ El ${terr.name} ya está asignado a ${
+                                terr.assignedToName || 'otra persona'
+                              }.\n\n¿Desea reasignarlo a ${cond.name}?`
+                            );
+                            if (!confirmed) {
+                              setTerritoryToAdd('');
+                              return;
+                            }
+                            setConfirmedReassignments((prev) => ({
+                              ...prev,
+                              [terr.id]: cond.id,
+                            }));
+                          }
+                        }
                         setSelectedTerritoryIds([...selectedTerritoryIds, id]);
                       }
                       setTerritoryToAdd('');
@@ -847,12 +1036,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="">+ Agregar territorio...</option>
                     {db.territories
                       .filter((t) => !selectedTerritoryIds.includes(t.id))
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                          {t.status === 'completado' ? ' (completado)' : ''}
-                        </option>
-                      ))}
+                      .map((t) => {
+                        const lastWorked = getTerritoryLastWorkedDate(t);
+                        const assigneeText = t.assignedToName
+                          ? `Asignado: ${t.assignedToName}`
+                          : 'Sin asignar';
+                        return (
+                          <option key={t.id} value={t.id}>
+                            {t.name} — Últ. vez: {lastWorked || 'Sin fecha'} —{' '}
+                            {assigneeText}
+                          </option>
+                        );
+                      })}
                   </select>
                 </div>
                 {selectedTerritoryIds.length > 0 ? (
@@ -1441,24 +1636,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <h2 className="text-xl font-black text-slate-900">
                 Estado de Territorios, Asignaciones y Lista de "No en Casa"
               </h2>
-              <button
-                type="button"
-                onClick={() =>
-                  handleExportGoogleMapsKml(
-                    db.territories,
-                    `Mapas_${db.congregationName || 'Congregacion'}_Google_Maps`
-                  )
-                }
-                disabled={db.territories.length === 0}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm cursor-pointer shadow-xs"
-              >
-                <Download className="w-4 h-4" />
-                🌍 Exportar Todo para Google Maps (.KML)
-              </button>
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="territory-sort-select"
+                  className="text-xs font-extrabold uppercase text-slate-600"
+                >
+                  Ordenar por:
+                </label>
+                <select
+                  id="territory-sort-select"
+                  value={territorySortBy}
+                  onChange={(e) =>
+                    setTerritorySortBy(
+                      e.target.value as
+                        | 'number'
+                        | 'oldest_worked'
+                        | 'recent_completed'
+                        | 'status'
+                        | 'assignee'
+                    )
+                  }
+                  className="px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold text-xs sm:text-sm text-slate-800 cursor-pointer"
+                >
+                  <option value="number">Número (1 → N)</option>
+                  <option value="oldest_worked">
+                    Trabajados hace más tiempo (Prioridad)
+                  </option>
+                  <option value="recent_completed">
+                    Completados recientemente
+                  </option>
+                  <option value="status">Estado (En curso primero)</option>
+                  <option value="assignee">Asignado a (A → Z)</option>
+                </select>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {db.territories.map((t) => {
+              {sortedTerritoriesForTab.map((t) => {
                 const tBlocks = db.blocks
                   .filter((b) => b.territoryId === t.id)
                   .sort((a, b) => a.code.localeCompare(b.code));
@@ -1669,20 +1883,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         🗺️ Abrir en Mapa Interactivo
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleExportGoogleMapsKml(
-                            [t],
-                            `Territorio_${t.number}_${t.name}_Google_Maps`
-                          )
-                        }
-                        className="w-full py-2 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-900 font-bold text-xs flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        📥 Exportar a Google Maps (.KML)
-                      </button>
-
                       {t.status !== 'completado' && (
                         <button
                           onClick={() => onCompleteWholeTerritory(t.id)}
@@ -1770,8 +1970,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <MapEditorView
             territories={db.territories}
             blocks={db.blocks}
-            housePoints={db.housePoints}
-            congregationName={db.congregationName}
             onSaveTerritory={onSaveTerritory}
             onCreateTerritory={onCreateTerritory}
             onDeleteTerritory={onDeleteTerritory}

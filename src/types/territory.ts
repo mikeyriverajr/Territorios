@@ -143,6 +143,12 @@ export interface OfflineSyncItem {
   synced: boolean;
 }
 
+export interface MeetingLocation {
+  id: string;
+  name: string;
+  url?: string;
+}
+
 export interface AppDatabase {
   isConfigured?: boolean;
   congregationName: string;
@@ -152,6 +158,7 @@ export interface AppDatabase {
   blocks: Block[];
   housePoints: HousePoint[];
   schedule: ScheduleSlot[];
+  customLocations?: MeetingLocation[];
   notificationTemplates: PushNotificationTemplate[];
   pushNotifications: PushNotificationItem[];
   s13History: S13Record[];

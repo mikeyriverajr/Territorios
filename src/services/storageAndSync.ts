@@ -6,6 +6,7 @@ import {
   HousePoint,
   HousePointStatus,
   LatLngTuple,
+  MeetingLocation,
   PushNotificationTemplate,
   S13Record,
   ScheduleSlot,
@@ -83,6 +84,21 @@ export function getDefaultNotificationTemplates(): PushNotificationTemplate[] {
   ];
 }
 
+export function getDefaultCustomLocations(): MeetingLocation[] {
+  return [
+    {
+      id: 'loc-arroyo',
+      name: 'Arroyo Porã',
+      url: 'https://maps.app.goo.gl/GFt712zxPGqS6JVy6',
+    },
+    {
+      id: 'loc-salon',
+      name: 'Salón del Reino',
+      url: '',
+    },
+  ];
+}
+
 /**
  * Base de datos limpia para el Asistente de Configuración Inicial (Startup Wizard)
  */
@@ -96,6 +112,7 @@ export function getBlankLiveDatabase(): AppDatabase {
     blocks: [],
     housePoints: [],
     schedule: [],
+    customLocations: getDefaultCustomLocations(),
     notificationTemplates: getDefaultNotificationTemplates(),
     pushNotifications: [],
     s13History: [],
@@ -378,6 +395,7 @@ export function getDemoDatabase(): AppDatabase {
     blocks,
     housePoints,
     schedule,
+    customLocations: getDefaultCustomLocations(),
     notificationTemplates: getDefaultNotificationTemplates(),
     pushNotifications: [],
     s13History: [],
@@ -416,6 +434,9 @@ export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
           territoryIds: Array.isArray(s?.territoryIds) ? s.territoryIds : [],
         }))
       : [],
+    customLocations: Array.isArray(parsed.customLocations)
+      ? parsed.customLocations
+      : getDefaultCustomLocations(),
     notificationTemplates:
       Array.isArray(parsed.notificationTemplates) &&
       parsed.notificationTemplates.length > 0

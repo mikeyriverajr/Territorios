@@ -92,20 +92,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
               className="w-full px-4 py-3.5 rounded-xl border-2 border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-700 focus:outline-none font-extrabold text-base text-slate-900 cursor-pointer"
             >
               {conductors.length > 0 ? (
-                <optgroup label="Conductores de Predicación">
-                  {conductors.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      👤 {c.name}
-                      {c.isAdmin ? ' (🛡️ Admin / Conductor)' : ' (Conductor)'}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : (
-                <optgroup label="Administración de Territorios">
-                  <option value="admin">
-                    🔐 Siervo de Territorios / Administrador
+                conductors.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
                   </option>
-                </optgroup>
+                ))
+              ) : (
+                <option value="admin">Administrador</option>
               )}
             </select>
           </div>
@@ -144,15 +137,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
             Entrar
           </button>
         </form>
-
-        {/* Nota informativa para los Publicadores */}
-        <div className="bg-white/90 rounded-2xl border border-slate-200 p-4 text-center">
-          <div className="text-xs text-slate-600">
-            <strong>¿Eres publicador en un grupo de predicación?</strong> No
-            necesitas iniciar sesión; abre el link compartido por el conductor
-            de tu grupo.
-          </div>
-        </div>
       </div>
     </div>
   );
