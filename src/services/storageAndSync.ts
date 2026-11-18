@@ -613,6 +613,7 @@ export function markWholeTerritoryCompleted(
           ...t,
           status: 'completado' as const,
           completedAt: todayStr,
+          lastCompletedAt: todayStr,
           lastConductor: conductorName || t.lastConductor,
         }
       : t
@@ -624,6 +625,8 @@ export function markWholeTerritoryCompleted(
           ...b,
           status: 'completada' as BlockStatus,
           lastWorkedAt: todayStr,
+          completedAt: todayStr,
+          lastCompletedAt: todayStr,
           lastConductor: conductorName || b.lastConductor,
         }
       : b
@@ -663,6 +666,7 @@ export function resetTerritoryForNewCycle(
           status: 'en_curso' as const,
           startedAt: todayStr,
           completedAt: undefined,
+          lastCompletedAt: t.completedAt || t.lastCompletedAt,
           lastConductor: newConductor || t.lastConductor,
         }
       : t
@@ -674,6 +678,8 @@ export function resetTerritoryForNewCycle(
           ...b,
           status: 'pendiente' as BlockStatus,
           lastWorkedAt: undefined,
+          completedAt: undefined,
+          lastCompletedAt: b.completedAt || b.lastWorkedAt || b.lastCompletedAt,
         }
       : b
   );

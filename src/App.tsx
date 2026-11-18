@@ -337,22 +337,70 @@ export const App: React.FC = () => {
     const todayStr = new Date().toISOString().slice(0, 10);
     let nextDb: AppDatabase = {
       ...db,
-      blocks: db.blocks.map((b) =>
-        b.id === blockId
-          ? {
-              ...b,
-              status,
-              lastWorkedAt: todayStr,
-              lastConductor: conductorName || b.lastConductor,
-            }
-          : b
-      ),
+      blocks: db.blocks.map((b) => {
+        if (b.id !== blockId) return b;
+        if (status === 'completada') {
+          return {
+            ...b,
+            status,
+            lastWorkedAt: todayStr,
+            completedAt: todayStr,
+            lastCompletedAt: todayStr,
+            lastConductor: conductorName || b.lastConductor,
+          };
+        }
+        return {
+          ...b,
+          status,
+          completedAt: undefined,
+          lastCompletedAt: b.completedAt || b.lastCompletedAt || b.lastWorkedAt,
+          lastConductor: conductorName || b.lastConductor,
+        };
+      }),
     };
 
     nextDb = appendSyncAction(
       nextDb,
       `Marcó Manzana ${targetBlock.code} como ${status}`
     );
+    setDb(saveDatabase(nextDb));
+  };
+
+  const handleAssignTerritory = (
+    territoryId: string,
+    conductorId: string,
+    assignmentNotes?: string
+  ) => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const assignedUser = conductorId
+      ? db.conductors.find((c) => c.id === conductorId)
+      : undefined;
+
+    const nextDb: AppDatabase = {
+      ...db,
+      territories: db.territories.map((t) => {
+        if (t.id !== territoryId) return t;
+        if (assignedUser) {
+          return {
+            ...t,
+            assignedToId: assignedUser.id,
+            assignedToName: assignedUser.name,
+            assignedAt: todayStr,
+            assignmentNotes: assignmentNotes?.trim() || undefined,
+            lastConductor: assignedUser.name,
+            startedAt: t.startedAt || todayStr,
+          };
+        }
+        return {
+          ...t,
+          assignedToId: undefined,
+          assignedToName: undefined,
+          assignedAt: undefined,
+          assignmentNotes: undefined,
+        };
+      }),
+    };
+
     setDb(saveDatabase(nextDb));
   };
 
@@ -628,6 +676,23 @@ export const App: React.FC = () => {
             activeTerritoryId={mapOpenForTerritoryId}
             activeSlot={activeSlotForMap}
             canSwitchAllTerritories={authRole === 'admin'}
+            allowedTerritoryIds={
+              authRole === 'admin'
+                ? undefined
+                : activeSlotForMap
+                ? activeSlotForMap.territoryIds
+                : loggedConductor
+                ? db.territories
+                    .filter(
+                      (t) =>
+                        t.assignedToId === loggedConductor.id ||
+                        (t.assignedToName &&
+                          t.assignedToName === loggedConductor.name) ||
+                        t.id === mapOpenForTerritoryId
+                    )
+                    .map((t) => t.id)
+                : [mapOpenForTerritoryId]
+            }
             onSelectTerritory={(id) => setMapOpenForTerritoryId(id)}
             onBack={() => setMapOpenForTerritoryId(null)}
             onAddHousePoint={(pt) =>
@@ -655,6 +720,10 @@ export const App: React.FC = () => {
               setMapOpenForTerritoryId(
                 slot.territoryIds[0] || db.territories[0]?.id || 'terr-1'
               );
+            }}
+            onOpenTerritoryMap={(territoryId) => {
+              setActiveSlotForMap(null);
+              setMapOpenForTerritoryId(territoryId);
             }}
             onCompleteWholeTerritory={(territoryId, condName) =>
               handleCompleteWholeTerritory(territoryId, condName)
@@ -869,6 +938,7 @@ export const App: React.FC = () => {
             onResetTerritory={(territoryId) =>
               handleResetTerritory(territoryId, 'Administrador')
             }
+            onAssignTerritory={handleAssignTerritory}
             onUpdateCongregationSettings={(name, pin) => {
               setDb(
                 saveDatabase({

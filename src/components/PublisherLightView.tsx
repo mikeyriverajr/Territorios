@@ -162,13 +162,14 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
 
     const map = L.map(mapContainerRef.current, {
       center,
-      zoom: 17,
+      zoom: 15,
     });
 
     const tile = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       {
         maxZoom: 19,
+        maxNativeZoom: 17,
         attribution: '© Esri Satellite',
       }
     ).addTo(map);
@@ -197,6 +198,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             {
               maxZoom: 19,
+              maxNativeZoom: 17,
               attribution: '© Esri Satellite',
             }
           )
@@ -213,7 +215,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   useEffect(() => {
     if (!mapRef.current || !activeTerritory?.polygon?.length) return;
     const bounds = L.latLngBounds(activeTerritory.polygon);
-    mapRef.current.fitBounds(bounds, { padding: [24, 24], maxZoom: 18 });
+    mapRef.current.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 });
   }, [activeTerritory?.id]);
 
   // ACTIVACIÓN AUTOMÁTICA DEL GPS AL ENTRAR Y SEGUIMIENTO CONTINUO
@@ -251,11 +253,11 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
             hasAutoZoomedRef.current = true;
             mapRef.current.fitBounds(L.latLngBounds(matchedBlock.polygon), {
               padding: [45, 45],
-              maxZoom: 19,
+              maxZoom: 17,
             });
           } else {
             hasAutoZoomedRef.current = true;
-            mapRef.current.setView(coords, 18);
+            mapRef.current.setView(coords, 17);
           }
         }
       },
@@ -428,7 +430,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
 
     const centerOnCoords = (coords: LatLngTuple) => {
       setUserGps(coords);
-      mapRef.current?.setView(coords, 19);
+      mapRef.current?.setView(coords, 17);
       openDraftAtCoordinates(coords);
     };
 
@@ -663,7 +665,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
                   key={pt.id}
                   onClick={() => {
                     setSelectedPointId(pt.id);
-                    mapRef.current?.setView([pt.lat, pt.lng], 19);
+                    mapRef.current?.setView([pt.lat, pt.lng], 17);
                   }}
                   className="p-2.5 rounded-xl bg-white hover:bg-amber-50 border border-slate-200 flex items-center justify-between gap-2 cursor-pointer shadow-2xs"
                 >

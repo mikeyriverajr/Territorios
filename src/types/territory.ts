@@ -23,6 +23,8 @@ export interface Block {
   status: BlockStatus;
   polygon: LatLngTuple[]; // Coordenadas [lat, lng]
   lastWorkedAt?: string;
+  completedAt?: string;
+  lastCompletedAt?: string;
   lastConductor?: string;
 }
 
@@ -73,7 +75,12 @@ export interface Territory {
   polygon: LatLngTuple[]; // Polígono general del territorio (del Archivo 1)
   startedAt?: string;     // Fecha de inicio del ciclo actual (para S-13)
   completedAt?: string;   // Fecha de cierre (para S-13)
+  lastCompletedAt?: string; // Última fecha en que se completó el territorio
   lastConductor?: string;
+  assignedToId?: string;    // ID del usuario/conductor asignado directamente (territorio personal)
+  assignedToName?: string;  // Nombre del usuario asignado directamente
+  assignedAt?: string;      // Fecha de asignación directa
+  assignmentNotes?: string; // Notas opcionales de la asignación
 }
 
 export interface ScheduleSlot {

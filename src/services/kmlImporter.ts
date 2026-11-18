@@ -376,3 +376,228 @@ export function parseBlocksAndHousesKml(
     updatedTerritories,
   };
 }
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function formatKmlPolygonCoordinates(polygon: LatLngTuple[]): string {
+  if (polygon.length === 0) return '';
+  const ring = [...polygon];
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    ring.push(first);
+  }
+  return ring.map(([lat, lng]) => `${lng},${lat},0`).join(' ');
+}
+
+/**
+ * Exporta territorios, manzanas y puntos de casas a formato KML 2.2 estándar
+ * compatible con Google My Maps y Google Earth.
+ */
+export function exportMapsToGoogleKml(params: {
+  congregationName?: string;
+  territories: Territory[];
+  blocks: Block[];
+  housePoints: HousePoint[];
+}): string {
+  const { congregationName, territories, blocks, housePoints } = params;
+  const docName = congregationName?.trim()
+    ? `Territorios - ${congregationName.trim()}`
+    : 'Territorios de la Congregación';
+
+  const territoryById = new Map(territories.map((t) => [t.id, t]));
+
+  const territoryPlacemarks = territories
+    .filter((t) => t.polygon.length >= 3)
+    .map((t) => {
+      const descLines = [
+        `Tipo: ${t.type}`,
+        `Estado: ${t.status === 'completado' ? 'Completado' : 'En curso'}`,
+        t.assignedToName ? `Asignado a: ${t.assignedToName}` : null,
+        t.assignedAt ? `Fecha asignación: ${t.assignedAt}` : null,
+        t.completedAt || t.lastCompletedAt
+          ? `Última vez completado: ${t.completedAt || t.lastCompletedAt}`
+          : null,
+        t.description || null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      return `      <Placemark>
+        <name>${escapeXml(t.name)}</name>
+        <description>${escapeXml(descLines)}</description>
+        <styleUrl>#style-territory</styleUrl>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>${formatKmlPolygonCoordinates(t.polygon)}</coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>`;
+    })
+    .join('\n');
+
+  const blockPlacemarks = blocks
+    .filter((b) => b.polygon.length >= 3)
+    .map((b) => {
+      const parentName = territoryById.get(b.territoryId)?.name || b.territoryId;
+      const doneDate = b.completedAt || b.lastCompletedAt || b.lastWorkedAt;
+      const descLines = [
+        `Territorio: ${parentName}`,
+        `Código: ${b.code}`,
+        `Estado: ${b.status}`,
+        doneDate ? `Fecha completado/trabajado: ${doneDate}` : null,
+        b.lastConductor ? `Conductor: ${b.lastConductor}` : null,
+        b.description || null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const styleUrl =
+        b.status === 'completada' ? '#style-block-done' : '#style-block-pending';
+
+      return `      <Placemark>
+        <name>${escapeXml(b.name || `Manzana ${b.code}`)}</name>
+        <description>${escapeXml(descLines)}</description>
+        <styleUrl>${styleUrl}</styleUrl>
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>${formatKmlPolygonCoordinates(b.polygon)}</coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </Placemark>`;
+    })
+    .join('\n');
+
+  const pointPlacemarks = housePoints
+    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng))
+    .map((p) => {
+      const parentName = territoryById.get(p.territoryId)?.name || p.territoryId;
+      const categoryLabel =
+        p.category === 'no_visitar'
+          ? 'NO VISITAR'
+          : p.category === 'casa_rural'
+          ? 'Casa Rural'
+          : 'No en casa';
+      const titlePrefix = p.shortCode ? `[${p.shortCode}] ` : '';
+      const descLines = [
+        `Territorio: ${parentName}`,
+        p.blockCode ? `Manzana: ${p.blockCode}` : null,
+        `Categoría: ${categoryLabel}`,
+        `Estado: ${p.status}`,
+        p.notes ? `Notas: ${p.notes}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const styleUrl =
+        p.category === 'no_visitar'
+          ? '#style-point-novisitar'
+          : p.status === 'atendido'
+          ? '#style-point-done'
+          : p.category === 'casa_rural'
+          ? '#style-point-rural'
+          : '#style-point-notathome';
+
+      return `      <Placemark>
+        <name>${escapeXml(`${titlePrefix}${p.label}`)}</name>
+        <description>${escapeXml(descLines)}</description>
+        <styleUrl>${styleUrl}</styleUrl>
+        <Point>
+          <coordinates>${p.lng},${p.lat},0</coordinates>
+        </Point>
+      </Placemark>`;
+    })
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${escapeXml(docName)}</name>
+    <description>${escapeXml('Exportado para Google My Maps / Google Earth')}</description>
+    <Style id="style-territory">
+      <LineStyle>
+        <color>ff8a3a1e</color>
+        <width>3</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>1f3b82f6</color>
+      </PolyStyle>
+    </Style>
+    <Style id="style-block-pending">
+      <LineStyle>
+        <color>ffeb6325</color>
+        <width>2</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>33f6823b</color>
+      </PolyStyle>
+    </Style>
+    <Style id="style-block-done">
+      <LineStyle>
+        <color>ff699605</color>
+        <width>2</width>
+      </LineStyle>
+      <PolyStyle>
+        <color>4481b910</color>
+      </PolyStyle>
+    </Style>
+    <Style id="style-point-notathome">
+      <IconStyle>
+        <color>ff1673f9</color>
+      </IconStyle>
+    </Style>
+    <Style id="style-point-novisitar">
+      <IconStyle>
+        <color>ff2626dc</color>
+      </IconStyle>
+    </Style>
+    <Style id="style-point-rural">
+      <IconStyle>
+        <color>ffeb6325</color>
+      </IconStyle>
+    </Style>
+    <Style id="style-point-done">
+      <IconStyle>
+        <color>ff4aa316</color>
+      </IconStyle>
+    </Style>
+    <Folder>
+      <name>Territorios</name>
+${territoryPlacemarks}
+    </Folder>
+    <Folder>
+      <name>Manzanas</name>
+${blockPlacemarks}
+    </Folder>
+    <Folder>
+      <name>Casas y Puntos</name>
+${pointPlacemarks}
+    </Folder>
+  </Document>
+</kml>`;
+}
+
+export function downloadKmlFile(kmlText: string, fileName: string): void {
+  const blob = new Blob([kmlText], {
+    type: 'application/vnd.google-earth.kml+xml;charset=utf-8;',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName.toLowerCase().endsWith('.kml')
+    ? fileName
+    : `${fileName}.kml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

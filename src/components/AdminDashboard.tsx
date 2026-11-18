@@ -33,6 +33,8 @@ import {
   Territory,
 } from '../types/territory';
 import {
+  downloadKmlFile,
+  exportMapsToGoogleKml,
   extractKmlTextFromFile,
   parseBlocksAndHousesKml,
   parseTerritoriesKml,
@@ -115,6 +117,11 @@ interface AdminDashboardProps {
   }) => void;
   onCompleteWholeTerritory: (territoryId: string) => void;
   onResetTerritory: (territoryId: string) => void;
+  onAssignTerritory: (
+    territoryId: string,
+    conductorId: string,
+    assignmentNotes?: string
+  ) => void;
   onUpdateCongregationSettings: (name: string, pin: string) => void;
   onRestoreFullBackup: (backupDb: AppDatabase) => void;
   onLaunchStartupWizard?: () => void;
@@ -140,6 +147,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSendPushNotificationToConductor,
   onCompleteWholeTerritory,
   onResetTerritory,
+  onAssignTerritory,
   onUpdateCongregationSettings,
   onRestoreFullBackup,
   onLaunchStartupWizard,
@@ -200,7 +208,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [cloudSyncStatusMsg, setCloudSyncStatusMsg] = useState<string>('');
   const [backupStatusMsg, setBackupStatusMsg] = useState<string>('');
   const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
+  const [assignmentNotesDraft, setAssignmentNotesDraft] = useState<
+    Record<string, string>
+  >({});
   const hasEnvSupabase = getEnvCloudConfig().enabled;
+
+  const handleExportGoogleMapsKml = (
+    targetTerritories: Territory[],
+    fileNameBase: string
+  ) => {
+    const territoryIdSet = new Set(targetTerritories.map((t) => t.id));
+    const filteredBlocks = db.blocks.filter((b) =>
+      territoryIdSet.has(b.territoryId)
+    );
+    const filteredPoints = db.housePoints.filter((p) =>
+      territoryIdSet.has(p.territoryId)
+    );
+    const kmlText = exportMapsToGoogleKml({
+      congregationName: db.congregationName,
+      territories: targetTerritories,
+      blocks: filteredBlocks,
+      housePoints: filteredPoints,
+    });
+    const safeName = fileNameBase.trim().replace(/\s+/g, '_');
+    downloadKmlFile(kmlText, `${safeName}.kml`);
+  };
 
   const handleCreateConductor = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1405,13 +1437,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <div className="space-y-6">
           {/* Resumen por territorio en la nube */}
           <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 sm:p-6 space-y-4">
-            <h2 className="text-xl font-black text-slate-900">
-              Estado de Territorios y Lista de "No en Casa" en la Nube
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-xl font-black text-slate-900">
+                Estado de Territorios, Asignaciones y Lista de "No en Casa"
+              </h2>
+              <button
+                type="button"
+                onClick={() =>
+                  handleExportGoogleMapsKml(
+                    db.territories,
+                    `Mapas_${db.congregationName || 'Congregacion'}_Google_Maps`
+                  )
+                }
+                disabled={db.territories.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm cursor-pointer shadow-xs"
+              >
+                <Download className="w-4 h-4" />
+                🌍 Exportar Todo para Google Maps (.KML)
+              </button>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {db.territories.map((t) => {
-                const tBlocks = db.blocks.filter((b) => b.territoryId === t.id);
+                const tBlocks = db.blocks
+                  .filter((b) => b.territoryId === t.id)
+                  .sort((a, b) => a.code.localeCompare(b.code));
                 const doneBlocks = tBlocks.filter(
                   (b) => b.status === 'completada'
                 );
@@ -1421,6 +1471,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 const tNoVisitar = db.housePoints.filter(
                   (p) => p.territoryId === t.id && p.category === 'no_visitar'
                 );
+                const latestS13ForTerritory = db.s13History.find(
+                  (r) => r.territoryId === t.id
+                );
+                const lastCompletedDate =
+                  t.completedAt ||
+                  t.lastCompletedAt ||
+                  latestS13ForTerritory?.completedAt;
+                const currentNoteDraft =
+                  assignmentNotesDraft[t.id] ?? t.assignmentNotes ?? '';
 
                 return (
                   <div
@@ -1444,6 +1503,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                     <div className="text-xs text-slate-700 space-y-1">
                       <div>
+                        • Última vez completado:{' '}
+                        <strong className="text-emerald-800">
+                          {lastCompletedDate || 'Aún no registrado'}
+                        </strong>
+                      </div>
+                      <div>
                         • Manzanas completadas:{' '}
                         <strong>
                           {doneBlocks.length}/{tBlocks.length}
@@ -1462,6 +1527,113 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </strong>
                       </div>
                     </div>
+
+                    {/* Asignación Directa / Territorio Personal */}
+                    <div className="bg-white rounded-xl p-3 border border-blue-200 space-y-2">
+                      <label className="block text-[11px] font-black uppercase text-blue-900">
+                        Asignación Directa / Personal:
+                      </label>
+                      <select
+                        value={t.assignedToId || ''}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          onAssignTerritory(t.id, selectedId, currentNoteDraft);
+                        }}
+                        className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white font-bold text-xs text-slate-900"
+                      >
+                        <option value="">
+                          Sin asignar (Solo programa general)
+                        </option>
+                        {db.conductors.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      {t.assignedToId && (
+                        <div className="space-y-1.5">
+                          <div className="text-[11px] font-bold text-blue-800">
+                            Asignado el: {t.assignedAt || 'Activo'}
+                          </div>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              value={currentNoteDraft}
+                              onChange={(e) =>
+                                setAssignmentNotesDraft((prev) => ({
+                                  ...prev,
+                                  [t.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Nota opcional para el asignado..."
+                              className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onAssignTerritory(
+                                  t.id,
+                                  t.assignedToId || '',
+                                  currentNoteDraft
+                                )
+                              }
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-900 font-extrabold text-[11px] cursor-pointer shrink-0"
+                            >
+                              Guardar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Estado y fecha de completado de cada manzana */}
+                    {tBlocks.length > 0 && (
+                      <div className="bg-white rounded-xl p-2.5 border border-slate-200 space-y-1.5">
+                        <div className="text-[11px] font-black uppercase text-slate-600">
+                          Fechas por Manzana ({tBlocks.length}):
+                        </div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+                          {tBlocks.map((b) => {
+                            const blockDoneDate =
+                              b.completedAt ||
+                              b.lastCompletedAt ||
+                              b.lastWorkedAt;
+                            const isDone = b.status === 'completada';
+                            return (
+                              <div
+                                key={b.id}
+                                className="flex items-center justify-between gap-2 text-[11px] py-1 px-2 rounded-lg bg-slate-50 border border-slate-200"
+                              >
+                                <span className="font-extrabold text-slate-800">
+                                  Mz {b.code}
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded font-bold ${
+                                      isDone
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : b.status === 'en_progreso'
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : 'bg-slate-200 text-slate-700'
+                                    }`}
+                                  >
+                                    {isDone
+                                      ? '✓ Completada'
+                                      : b.status === 'en_progreso'
+                                      ? 'En progreso'
+                                      : 'Pendiente'}
+                                  </span>
+                                  <span className="font-mono text-slate-600">
+                                    {blockDoneDate || 'Sin fecha'}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Lista rápida de los No en casa de ese territorio */}
                     {tNotAtHome.length > 0 && (
@@ -1495,6 +1667,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         className="w-full py-2 px-3 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs cursor-pointer"
                       >
                         🗺️ Abrir en Mapa Interactivo
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleExportGoogleMapsKml(
+                            [t],
+                            `Territorio_${t.number}_${t.name}_Google_Maps`
+                          )
+                        }
+                        className="w-full py-2 px-3 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-900 font-bold text-xs flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        📥 Exportar a Google Maps (.KML)
                       </button>
 
                       {t.status !== 'completado' && (
@@ -1584,6 +1770,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <MapEditorView
             territories={db.territories}
             blocks={db.blocks}
+            housePoints={db.housePoints}
+            congregationName={db.congregationName}
             onSaveTerritory={onSaveTerritory}
             onCreateTerritory={onCreateTerritory}
             onDeleteTerritory={onDeleteTerritory}
@@ -1813,12 +2001,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
           </div>
 
-        {/* Sección Importar Mapas KML dentro de Ajustes */}
+        {/* Sección Importar y Exportar Mapas KML dentro de Ajustes */}
         <div className="mt-8 pt-8 border-t-2 border-slate-200">
-          <h3 className="text-xl font-black text-slate-900 mb-4 flex items-center gap-2">
-            <FileUp className="w-5 h-5 text-blue-700" />
-            Importar o Reemplazar Mapas desde Google My Maps
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+              <FileUp className="w-5 h-5 text-blue-700" />
+              Importar o Exportar Mapas (Google My Maps)
+            </h3>
+            <button
+              type="button"
+              onClick={() =>
+                handleExportGoogleMapsKml(
+                  db.territories,
+                  `Mapas_${db.congregationName || 'Congregacion'}_Google_Maps`
+                )
+              }
+              disabled={db.territories.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-extrabold text-xs sm:text-sm cursor-pointer shadow-xs"
+            >
+              <Download className="w-4 h-4" />
+              🌍 Exportar Todo para Google Maps (.KML)
+            </button>
+          </div>
           <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 sm:p-6 space-y-6 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
             <div>

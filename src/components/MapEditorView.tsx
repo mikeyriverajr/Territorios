@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import {
   Check,
+  Download,
   Edit3,
   Layers,
   MapPin,
@@ -12,15 +13,22 @@ import {
 } from 'lucide-react';
 import {
   Block,
+  HousePoint,
   LatLngTuple,
   Territory,
   TerritoryType,
 } from '../types/territory';
-import { getPolygonCentroid } from '../services/kmlImporter';
+import {
+  exportMapsToGoogleKml,
+  downloadKmlFile,
+  getPolygonCentroid,
+} from '../services/kmlImporter';
 
 interface MapEditorViewProps {
   territories: Territory[];
   blocks: Block[];
+  housePoints?: HousePoint[];
+  congregationName?: string;
   onSaveTerritory: (updated: Territory) => void;
   onCreateTerritory: (newTerr: Territory) => void;
   onDeleteTerritory: (territoryId: string) => void;
@@ -32,6 +40,8 @@ interface MapEditorViewProps {
 export const MapEditorView: React.FC<MapEditorViewProps> = ({
   territories,
   blocks,
+  housePoints = [],
+  congregationName = '',
   onSaveTerritory,
   onCreateTerritory,
   onDeleteTerritory,
@@ -116,13 +126,14 @@ export const MapEditorView: React.FC<MapEditorViewProps> = ({
 
     const map = L.map(mapContainerRef.current, {
       center: initialCenter,
-      zoom: 16,
+      zoom: 15,
     });
 
     const tile = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       {
         maxZoom: 19,
+        maxNativeZoom: 17,
         attribution: '© Esri Satellite',
       }
     ).addTo(map);
@@ -132,6 +143,13 @@ export const MapEditorView: React.FC<MapEditorViewProps> = ({
     mapRef.current = map;
     tileLayerRef.current = tile;
     layerGroupRef.current = group;
+
+    if (selectedTerritory?.polygon && selectedTerritory.polygon.length >= 2) {
+      map.fitBounds(L.latLngBounds(selectedTerritory.polygon), {
+        padding: [36, 36],
+        maxZoom: 16,
+      });
+    }
 
     return () => {
       map.remove();
@@ -152,6 +170,7 @@ export const MapEditorView: React.FC<MapEditorViewProps> = ({
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             {
               maxZoom: 19,
+              maxNativeZoom: 17,
               attribution: '© Esri Satellite',
             }
           )
@@ -336,8 +355,8 @@ export const MapEditorView: React.FC<MapEditorViewProps> = ({
   const handleFitSelectedOnMap = () => {
     if (!mapRef.current || draftPolygon.length < 2) return;
     mapRef.current.fitBounds(L.latLngBounds(draftPolygon), {
-      padding: [40, 40],
-      maxZoom: 18,
+      padding: [36, 36],
+      maxZoom: 16,
     });
   };
 
@@ -463,7 +482,7 @@ export const MapEditorView: React.FC<MapEditorViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={handleCreateNewTerritory}
@@ -480,6 +499,30 @@ export const MapEditorView: React.FC<MapEditorViewProps> = ({
           >
             <Plus className="w-3.5 h-3.5" />
             Nueva Manzana
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const kml = exportMapsToGoogleKml({
+                congregationName,
+                territories,
+                blocks,
+                housePoints,
+              });
+              const safeCong = (congregationName || 'Territorios')
+                .trim()
+                .replace(/\s+/g, '_');
+              downloadKmlFile(kml, `${safeCong}_Google_Maps.kml`);
+              setSavedToast(
+                '✅ Archivo .KML exportado. Impórtalo en Google My Maps o Google Earth.'
+              );
+              setTimeout(() => setSavedToast(''), 4000);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs flex items-center gap-1 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Exportar KML (Google Maps)
           </button>
 
           <button

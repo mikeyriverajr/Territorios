@@ -44,6 +44,7 @@ interface FieldMapViewProps {
   activeTerritoryId: string;
   activeSlot: ScheduleSlot | null;
   canSwitchAllTerritories?: boolean;
+  allowedTerritoryIds?: string[];
   onSelectTerritory: (territoryId: string) => void;
   onBack: () => void;
   onAddHousePoint: (point: {
@@ -92,6 +93,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
   activeTerritoryId,
   activeSlot,
   canSwitchAllTerritories = false,
+  allowedTerritoryIds,
   onSelectTerritory,
   onBack,
   onAddHousePoint,
@@ -102,12 +104,33 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
   onResetTerritory,
 }) => {
   const selectableTerritories = useMemo(() => {
-    if (canSwitchAllTerritories || !activeSlot) return territories;
-    const assigned = territories.filter((t) =>
-      activeSlot.territoryIds.includes(t.id)
-    );
-    return assigned.length > 0 ? assigned : territories;
-  }, [territories, activeSlot, canSwitchAllTerritories]);
+    if (canSwitchAllTerritories) return territories;
+    if (allowedTerritoryIds && allowedTerritoryIds.length > 0) {
+      const assigned = territories.filter((t) =>
+        allowedTerritoryIds.includes(t.id)
+      );
+      if (assigned.length > 0) return assigned;
+    }
+    if (activeSlot) {
+      const assigned = territories.filter((t) =>
+        activeSlot.territoryIds.includes(t.id)
+      );
+      if (assigned.length > 0) return assigned;
+    }
+    const single = territories.find((t) => t.id === activeTerritoryId);
+    return single ? [single] : territories;
+  }, [
+    territories,
+    activeSlot,
+    canSwitchAllTerritories,
+    allowedTerritoryIds,
+    activeTerritoryId,
+  ]);
+
+  const selectableTerritoryIdSet = useMemo(
+    () => new Set(selectableTerritories.map((t) => t.id)),
+    [selectableTerritories]
+  );
 
   const activeTerritory = useMemo(
     () =>
@@ -190,7 +213,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
     const map = L.map(mapContainerRef.current, {
       center: initialCenter,
-      zoom: 16,
+      zoom: 15,
       zoomControl: false,
     });
 
@@ -202,6 +225,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             {
               maxZoom: 19,
+              maxNativeZoom: 17,
               attribution: '© Esri Satellite',
             }
           )
@@ -265,6 +289,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
             {
               maxZoom: 19,
+              maxNativeZoom: 17,
               attribution: '© Esri Satellite',
             }
           )
@@ -327,7 +352,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     if (!bounds.isValid()) return;
 
     map.invalidateSize();
-    map.fitBounds(bounds, { padding: [32, 32], maxZoom: 17 });
+    map.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 });
   }, [activeTerritory?.id, hasActiveTerritory]);
 
   useEffect(() => {
@@ -335,6 +360,36 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     if (!group || !activeTerritory) return;
 
     group.clearLayers();
+
+    // Dibujar los demás territorios de la congregación como polígonos de solo lectura con su nombre
+    territories
+      .filter((t) => t.id !== activeTerritory.id && t.polygon.length >= 3)
+      .forEach((t) => {
+        L.polygon(t.polygon, {
+          color: '#64748b',
+          weight: 2,
+          dashArray: '6, 6',
+          fillColor: '#94a3b8',
+          fillOpacity: 0.08,
+          interactive: false,
+        }).addTo(group);
+
+        const safeName = t.name
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        const terrCentroid = getPolygonCentroid(t.polygon);
+        const terrLabelIcon = L.divIcon({
+          className: 'custom-readonly-terr-label',
+          html: `<div style="display:flex;align-items:center;justify-content:center;width:160px;height:24px;pointer-events:none;"><span style="background:rgba(15,23,42,0.75);color:#e2e8f0;padding:2px 8px;border-radius:999px;font-weight:800;font-size:11px;border:1px solid rgba(255,255,255,0.5);box-shadow:0 1px 4px rgba(0,0,0,0.35);white-space:nowrap;">${safeName}</span></div>`,
+          iconSize: [160, 24],
+          iconAnchor: [80, 12],
+        });
+        L.marker(terrCentroid, {
+          icon: terrLabelIcon,
+          interactive: false,
+        }).addTo(group);
+      });
 
     if (activeTerritory.polygon.length >= 3) {
       L.polygon(activeTerritory.polygon, {
@@ -458,6 +513,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     }
   }, [
     activeTerritory,
+    territories,
     territoryBlocks,
     territoryPoints,
     selectedPointId,
@@ -484,7 +540,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
         setUserGps(coords);
         setGpsStatusText('📍 Ubicación GPS actualizada');
         if (mapInstanceRef.current) {
-          mapInstanceRef.current.setView(coords, 18);
+          mapInstanceRef.current.setView(coords, 17);
         }
         if (openAddDialogAfter && activeTerritory) {
           const matchedBlock = findBlockForCoordinates(
@@ -546,7 +602,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     );
 
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.setView(simulatedCoords, 18);
+      mapInstanceRef.current.setView(simulatedCoords, 17);
     }
 
     if (openAddDialogAfter) {
@@ -650,8 +706,18 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                 </span>
                 <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
                   {activeTerritory.name}
-                  {activeSlot ? ` — ${activeSlot.conductorName}` : ''}
+                  {activeSlot
+                    ? ` — ${activeSlot.conductorName}`
+                    : activeTerritory.assignedToName
+                    ? ` — ${activeTerritory.assignedToName}`
+                    : ''}
                 </h2>
+                {(activeSlot?.date || activeTerritory.assignedAt) && (
+                  <div className="text-xs font-bold text-slate-600 mt-0.5">
+                    Fecha:{' '}
+                    {activeSlot?.date || activeTerritory.assignedAt}
+                  </div>
+                )}
               </div>
               <button
                 onClick={() => setShowInitialBriefing(false)}
@@ -926,37 +992,48 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             <select
               value={activeTerritory.id}
               onChange={(e) => {
+                if (!selectableTerritoryIdSet.has(e.target.value)) return;
                 onSelectTerritory(e.target.value);
                 setSelectedPointId(null);
               }}
               className="px-3 py-1.5 rounded-xl border-2 border-blue-700 bg-blue-50 text-blue-950 font-extrabold text-sm cursor-pointer"
             >
-              {selectableTerritories.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} (
-                  {t.status === 'completado' ? 'Completado ✓' : 'En curso'})
-                </option>
-              ))}
+              {territories.map((t) => {
+                const isAllowed = selectableTerritoryIdSet.has(t.id);
+                return (
+                  <option
+                    key={t.id}
+                    value={t.id}
+                    disabled={!isAllowed}
+                  >
+                    {t.name} (
+                    {t.status === 'completado' ? 'Completado ✓' : 'En curso'})
+                    {!isAllowed ? ' (No asignado)' : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleCopyGroupLink}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 font-extrabold text-xs cursor-pointer"
-            >
-              {copiedPublisherLink ? (
-                <>
-                  <Copy className="w-3.5 h-3.5 text-emerald-700" />
-                  ¡Link de Publicadores Copiado!
-                </>
-              ) : (
-                <>
-                  <Link2 className="w-3.5 h-3.5 text-amber-800" />
-                  Link para Publicadores
-                </>
-              )}
-            </button>
+            {activeSlot && (
+              <button
+                onClick={handleCopyGroupLink}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 font-extrabold text-xs cursor-pointer"
+              >
+                {copiedPublisherLink ? (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-emerald-700" />
+                    ¡Link de Publicadores Copiado!
+                  </>
+                ) : (
+                  <>
+                    <Link2 className="w-3.5 h-3.5 text-amber-800" />
+                    Link para Publicadores
+                  </>
+                )}
+              </button>
+            )}
 
             <button
               onClick={() =>
@@ -1181,7 +1258,8 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                         onUpdateBlockStatus(
                           block.id,
                           isDone ? 'pendiente' : 'completada',
-                          activeSlot?.conductorName
+                          activeSlot?.conductorName ||
+                            activeTerritory.assignedToName
                         )
                       }
                       className={`p-3 rounded-xl border-2 text-left transition cursor-pointer flex items-center justify-between ${
@@ -1215,7 +1293,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                 onClick={() =>
                   onCompleteWholeTerritory(
                     activeTerritory.id,
-                    activeSlot?.conductorName
+                    activeSlot?.conductorName || activeTerritory.assignedToName
                   )
                 }
                 className="w-full py-3 px-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs sm:text-sm rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer transition"
@@ -1233,7 +1311,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                   onClick={() =>
                     onResetTerritory(
                       activeTerritory.id,
-                      activeSlot?.conductorName
+                      activeSlot?.conductorName || activeTerritory.assignedToName
                     )
                   }
                   className="w-full py-2.5 px-3 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1309,7 +1387,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                     key={pt.id}
                     onClick={() => {
                       setSelectedPointId(pt.id);
-                      mapInstanceRef.current?.setView([pt.lat, pt.lng], 18);
+                      mapInstanceRef.current?.setView([pt.lat, pt.lng], 17);
                     }}
                     className="p-3 rounded-xl bg-amber-50/80 border-2 border-amber-300 hover:border-amber-500 cursor-pointer transition space-y-2"
                   >
@@ -1373,7 +1451,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                   key={w.id}
                   onClick={() => {
                     setSelectedPointId(w.id);
-                    mapInstanceRef.current?.setView([w.lat, w.lng], 18);
+                    mapInstanceRef.current?.setView([w.lat, w.lng], 17);
                   }}
                   className="p-2.5 rounded-xl bg-red-50 border border-red-300 text-red-950 text-xs cursor-pointer"
                 >
