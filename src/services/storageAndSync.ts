@@ -729,6 +729,105 @@ export function resetTerritoryForNewCycle(
   });
 }
 
+/**
+ * Marca un territorio como completado en el historial S-13, lo reinicia desde cero
+ * para el próximo ciclo (conservando direcciones NO VISITAR) y retira la asignación
+ * y las salidas asociadas para que el conductor deje de tener acceso a él.
+ */
+export function completeAndReturnTerritory(
+  db: AppDatabase,
+  territoryId: string,
+  conductorName?: string
+): AppDatabase {
+  const territory = db.territories.find((t) => t.id === territoryId);
+  if (!territory) return db;
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const terrBlocks = db.blocks.filter((b) => b.territoryId === territoryId);
+  const terrPoints = db.housePoints.filter((p) => p.territoryId === territoryId);
+  const resolvedCount = terrPoints.filter(
+    (p) => p.status === 'atendido'
+  ).length;
+
+  const newS13Record: S13Record = {
+    id: `s13-${Date.now()}`,
+    territoryId: territory.id,
+    territoryName: territory.name,
+    assignedTo:
+      conductorName ||
+      territory.assignedToName ||
+      territory.lastConductor ||
+      'Conductor asignado',
+    startedAt: territory.assignedAt || territory.startedAt || todayStr,
+    completedAt: todayStr,
+    totalBlocks: terrBlocks.length,
+    totalNotAtHomeResolved: resolvedCount,
+    notes: 'Completado y devuelto por el conductor',
+  };
+
+  const updatedTerritories = db.territories.map((t) =>
+    t.id === territoryId
+      ? {
+          ...t,
+          status: 'en_curso' as const,
+          startedAt: undefined,
+          completedAt: undefined,
+          lastCompletedAt: todayStr,
+          lastConductor: conductorName || t.assignedToName || t.lastConductor,
+          assignedToId: undefined,
+          assignedToName: undefined,
+          assignedAt: undefined,
+          assignmentNotes: undefined,
+        }
+      : t
+  );
+
+  const updatedBlocks = db.blocks.map((b) =>
+    b.territoryId === territoryId
+      ? {
+          ...b,
+          status: 'pendiente' as BlockStatus,
+          lastWorkedAt: undefined,
+          completedAt: undefined,
+          lastCompletedAt: todayStr,
+          lastConductor: conductorName || b.lastConductor,
+        }
+      : b
+  );
+
+  const updatedPoints = db.housePoints
+    .filter((p) => {
+      if (p.territoryId !== territoryId) return true;
+      return p.category === 'no_visitar' || p.category === 'casa_rural';
+    })
+    .map((p) => {
+      if (p.territoryId === territoryId && p.category === 'casa_rural') {
+        return {
+          ...p,
+          status: 'pendiente' as HousePointStatus,
+          attempts: [],
+        };
+      }
+      return p;
+    });
+
+  const updatedSchedule = (db.schedule || [])
+    .map((s) => ({
+      ...s,
+      territoryIds: (s.territoryIds || []).filter((id) => id !== territoryId),
+    }))
+    .filter((s) => s.territoryIds.length > 0);
+
+  return saveDatabase({
+    ...db,
+    territories: updatedTerritories,
+    blocks: updatedBlocks,
+    housePoints: updatedPoints,
+    schedule: updatedSchedule,
+    s13History: [newS13Record, ...db.s13History],
+  });
+}
+
 export function findBlockForCoordinates(
   blocks: Block[],
   territoryId: string,

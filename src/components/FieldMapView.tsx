@@ -13,10 +13,7 @@ import {
   Link2,
   MapPin,
   Navigation,
-  PlusCircle,
-  RefreshCw,
   ShieldAlert,
-  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -73,6 +70,10 @@ interface FieldMapViewProps {
     conductorName?: string
   ) => void;
   onResetTerritory: (territoryId: string, conductorName?: string) => void;
+  onCompleteAndReturnTerritory?: (
+    territoryId: string,
+    conductorName?: string
+  ) => void;
 }
 
 const QUICK_DESCRIPTIONS = [
@@ -102,6 +103,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
   onUpdateBlockStatus,
   onCompleteWholeTerritory,
   onResetTerritory,
+  onCompleteAndReturnTerritory,
 }) => {
   const selectableTerritories = useMemo(() => {
     if (canSwitchAllTerritories) return territories;
@@ -165,7 +167,9 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
   const [mapStyle, setMapStyle] = useState<'calles' | 'satelite'>('satelite');
   const [showInitialBriefing, setShowInitialBriefing] = useState<boolean>(true);
-  const [isPickingOnMap, setIsPickingOnMap] = useState<boolean>(false);
+  const [showReturnConfirmModal, setShowReturnConfirmModal] =
+    useState<boolean>(false);
+  const [isChangingBlock, setIsChangingBlock] = useState<boolean>(false);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [copiedPublisherLink, setCopiedPublisherLink] =
     useState<boolean>(false);
@@ -217,7 +221,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       zoomControl: false,
     });
 
-    L.control.zoom({ position: 'bottomleft' }).addTo(map);
+    L.control.zoom({ position: 'topleft' }).addTo(map);
 
     const tileLayer = (
       mapStyle === 'satelite'
@@ -310,13 +314,13 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     const handleMapClick = (e: L.LeafletMouseEvent) => {
       if (!activeTerritory) return;
       setSelectedPointId(null);
+      setIsChangingBlock(false);
       const coords: LatLngTuple = [e.latlng.lat, e.latlng.lng];
       const matchedBlock = findBlockForCoordinates(
         blocks,
         activeTerritory.id,
         coords
       );
-      setIsPickingOnMap(false);
       setNewPointDraft({
         lat: coords[0],
         lng: coords[1],
@@ -333,7 +337,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     return () => {
       map.off('click', handleMapClick);
     };
-  }, [isPickingOnMap, activeTerritory, blocks]);
+  }, [activeTerritory, blocks]);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -398,6 +402,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
         dashArray: '8, 6',
         fillColor: '#3b82f6',
         fillOpacity: territoryBlocks.length === 0 ? 0.08 : 0.02,
+        interactive: false,
       }).addTo(group);
     }
 
@@ -427,7 +432,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       // Tocar dentro de una manzana abre el registro directamente en ese punto
       poly.on('click', (e: L.LeafletMouseEvent) => {
         L.DomEvent.stopPropagation(e);
-        setIsPickingOnMap(false);
+        setIsChangingBlock(false);
         setSelectedPointId(null);
         setNewPointDraft({
           lat: e.latlng.lat,
@@ -518,7 +523,6 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     territoryPoints,
     selectedPointId,
     userGps,
-    isPickingOnMap,
   ]);
 
   const handleLocateMeGps = (
@@ -649,6 +653,21 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     });
 
     setNewPointDraft(null);
+    setIsChangingBlock(false);
+  };
+
+  const handleConfirmReturnTerritory = () => {
+    if (!activeTerritory) return;
+    const conductorName =
+      activeSlot?.conductorName || activeTerritory.assignedToName;
+    setShowReturnConfirmModal(false);
+    if (onCompleteAndReturnTerritory) {
+      onCompleteAndReturnTerritory(activeTerritory.id, conductorName);
+    } else {
+      onCompleteWholeTerritory(activeTerritory.id, conductorName);
+      onResetTerritory(activeTerritory.id, conductorName);
+      onBack();
+    }
   };
 
   const toggleChip = (chip: string) => {
@@ -695,7 +714,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
   return (
     <div className="flex flex-col lg:flex-row min-h-[calc(100vh-64px)] lg:h-[calc(100vh-64px)] bg-slate-100 lg:overflow-hidden">
-      {/* MODAL DE AVISO INICIAL AL ABRIR EL TERRITORIO (Muestra NO VISITAR y No en Casa en la Nube) */}
+      {/* MODAL DE AVISO INICIAL AL ABRIR EL TERRITORIO */}
       {showInitialBriefing && (
         <div className="fixed inset-0 z-[2000] bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5">
           <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border-2 border-blue-900 p-5 sm:p-6 space-y-4">
@@ -727,11 +746,11 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
               </button>
             </div>
 
-            {/* 1. Direcciones NO VISITAR en este territorio */}
+            {/* Direcciones NO VISITAR en este territorio */}
             <div className="space-y-2">
               <h3 className="text-sm font-extrabold uppercase tracking-wider text-red-800 flex items-center gap-1.5">
                 <ShieldAlert className="w-4 h-4 text-red-600" />
-                1. Direcciones "NO VISITAR" en este territorio (
+                Direcciones "NO VISITAR" en este territorio (
                 {doNotCallList.length})
               </h3>
               {doNotCallList.length === 0 ? (
@@ -762,11 +781,11 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
               )}
             </div>
 
-            {/* 2. Resumen en la nube de Manzanas y Casas No en Casa */}
+            {/* Falta por hacer */}
             <div className="space-y-2">
               <h3 className="text-sm font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                 <Home className="w-4 h-4 text-blue-700" />
-                2. Estado en la Nube ({activeTerritory.name})
+                Falta por hacer ({activeTerritory.name})
               </h3>
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2 text-sm">
                 {territoryBlocks.length > 0 && (
@@ -779,7 +798,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                   </div>
                 )}
                 <div>
-                  <strong>Casas "No en casa" en la nube: </strong>
+                  <strong>Casas "No en casa": </strong>
                   <span className="font-bold text-amber-800">
                     {pendingNotAtHome.length} casa(s) pendientes
                   </span>
@@ -797,6 +816,54 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
         </div>
       )}
 
+      {/* MODAL DE CONFIRMACIÓN PARA COMPLETAR Y DEVOLVER EL TERRITORIO */}
+      {showReturnConfirmModal && (
+        <div className="fixed inset-0 z-[2000] bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border-2 border-emerald-600 p-5 sm:p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-black text-slate-900">
+                  ¿Completar y devolver {activeTerritory.name}?
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReturnConfirmModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-700 leading-relaxed">
+              ¿Deseas devolver este territorio? Al confirmar, el territorio
+              empezará desde cero para la próxima vez y ya no tendrás acceso a
+              él en tus asignaciones.
+            </p>
+
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowReturnConfirmModal(false)}
+                className="w-1/2 py-3 rounded-xl border-2 border-slate-300 font-bold text-slate-700 text-sm cursor-pointer hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReturnTerritory}
+                className="w-1/2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm shadow-md cursor-pointer"
+              >
+                Sí, devolver territorio
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL DEL CONDUCTOR PARA ANOTAR "NO EN CASA" O "🛑 NO VISITAR" */}
       {newPointDraft && (
         <div className="fixed inset-0 z-[2000] bg-slate-900/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -807,48 +874,62 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <span className="text-xs font-extrabold uppercase tracking-wider text-blue-800">
-                  📍 Punto GPS capturado{' '}
-                  {newPointDraft.blockCode
-                    ? `en Manzana ${newPointDraft.blockCode}`
-                    : `en ${activeTerritory.name}`}
+                  Anotar en el Mapa
                 </span>
-                <h3 className="text-xl font-black text-slate-900">
-                  Registrar en el Mapa (Conductor)
-                </h3>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <h3 className="text-xl font-black text-slate-900 leading-tight">
+                    {newPointDraft.blockCode
+                      ? `Manzana ${newPointDraft.blockCode}`
+                      : activeTerritory.name}
+                  </h3>
+                  {territoryBlocks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsChangingBlock(!isChangingBlock)}
+                      className="px-2.5 py-0.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-blue-700 font-extrabold text-xs cursor-pointer border border-slate-300 transition"
+                    >
+                      {isChangingBlock ? 'Cerrar' : 'Cambiar'}
+                    </button>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
-                onClick={() => setNewPointDraft(null)}
+                onClick={() => {
+                  setNewPointDraft(null);
+                  setIsChangingBlock(false);
+                }}
                 className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            {territoryBlocks.length > 0 && (
-              <div>
-                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1.5">
-                  Manzana:
+            {isChangingBlock && territoryBlocks.length > 0 && (
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
+                <label className="block text-xs font-extrabold uppercase text-slate-600">
+                  Seleccionar Manzana:
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
                   {territoryBlocks.map((b) => (
                     <button
                       type="button"
                       key={b.id}
-                      onClick={() =>
+                      onClick={() => {
                         setNewPointDraft({
                           ...newPointDraft,
                           blockId: b.id,
                           blockCode: b.code,
-                        })
-                      }
-                      className={`px-3.5 py-2 rounded-xl font-extrabold text-sm border-2 cursor-pointer transition ${
+                        });
+                        setIsChangingBlock(false);
+                      }}
+                      className={`px-3 py-1 rounded-lg font-extrabold text-xs border cursor-pointer transition ${
                         newPointDraft.blockCode === b.code
-                          ? 'bg-blue-700 text-white border-blue-800'
-                          : 'bg-slate-100 text-slate-800 border-slate-200'
+                          ? 'bg-blue-700 text-white border-blue-800 shadow-xs'
+                          : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-100'
                       }`}
                     >
-                      Manzana {b.code}
+                      {b.code}
                     </button>
                   ))}
                 </div>
@@ -858,7 +939,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             {/* El Conductor es quien tiene el permiso exclusivo de elegir entre "No en casa" o "NO VISITAR" */}
             <div>
               <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1.5">
-                Categoría (Exclusivo para Conductores):
+                Categoría:
               </label>
               <div className="grid grid-cols-2 gap-2.5">
                 <button
@@ -902,6 +983,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
               </label>
               <input
                 type="text"
+                autoFocus
                 value={newPointDraft.houseNumber}
                 onChange={(e) =>
                   setNewPointDraft({
@@ -916,7 +998,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
             <div>
               <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1.5">
-                O toque una descripción rápida:
+                Descripción rápida:
               </label>
               <div className="flex flex-wrap gap-1.5">
                 {QUICK_DESCRIPTIONS.map((chip) => {
@@ -926,7 +1008,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                       type="button"
                       key={chip}
                       onClick={() => toggleChip(chip)}
-                      className={`px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold border transition cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
                         active
                           ? 'bg-amber-100 border-amber-500 text-amber-950'
                           : 'bg-slate-100 border-slate-300 text-slate-700'
@@ -957,7 +1039,10 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             <div className="flex gap-2.5 pt-2">
               <button
                 type="button"
-                onClick={() => setNewPointDraft(null)}
+                onClick={() => {
+                  setNewPointDraft(null);
+                  setIsChangingBlock(false);
+                }}
                 className="w-1/3 py-3.5 rounded-xl border-2 border-slate-300 font-bold text-slate-700 cursor-pointer"
               >
                 Cancelar
@@ -970,7 +1055,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                     : 'bg-amber-600 hover:bg-amber-700'
                 }`}
               >
-                💾 Guardar en la Nube
+                Guardar
               </button>
             </div>
           </form>
@@ -979,276 +1064,252 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
       {/* COLUMNA IZQUIERDA: MAPA INTERACTIVO */}
       <div className="relative h-[68vh] sm:h-[72vh] shrink-0 lg:h-full lg:flex-1 lg:min-w-0 lg:min-h-0 flex flex-col">
-        <div className="bg-white border-b border-slate-200 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 z-10">
-          <div className="flex items-center gap-2">
+        {/* Encabezado limpio en una sola fila */}
+        <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between gap-2 z-10">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               onClick={onBack}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs sm:text-sm cursor-pointer shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
-              Mis Salidas
+              Salidas
             </button>
 
-            <select
-              value={activeTerritory.id}
-              onChange={(e) => {
-                if (!selectableTerritoryIdSet.has(e.target.value)) return;
-                onSelectTerritory(e.target.value);
-                setSelectedPointId(null);
-              }}
-              className="px-3 py-1.5 rounded-xl border-2 border-blue-700 bg-blue-50 text-blue-950 font-extrabold text-sm cursor-pointer"
-            >
-              {territories.map((t) => {
-                const isAllowed = selectableTerritoryIdSet.has(t.id);
-                return (
-                  <option
-                    key={t.id}
-                    value={t.id}
-                    disabled={!isAllowed}
-                  >
-                    {t.name} (
-                    {t.status === 'completado' ? 'Completado ✓' : 'En curso'})
-                    {!isAllowed ? ' (No asignado)' : ''}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            {activeSlot && (
-              <button
-                onClick={handleCopyGroupLink}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 font-extrabold text-xs cursor-pointer"
+            {selectableTerritories.length > 1 ? (
+              <select
+                value={activeTerritory.id}
+                onChange={(e) => {
+                  if (!selectableTerritoryIdSet.has(e.target.value)) return;
+                  onSelectTerritory(e.target.value);
+                  setSelectedPointId(null);
+                }}
+                className="min-w-0 px-2.5 py-1.5 rounded-xl border-2 border-blue-700 bg-blue-50 text-blue-950 font-extrabold text-xs sm:text-sm cursor-pointer truncate"
               >
-                {copiedPublisherLink ? (
-                  <>
-                    <Copy className="w-3.5 h-3.5 text-emerald-700" />
-                    ¡Link de Publicadores Copiado!
-                  </>
-                ) : (
-                  <>
-                    <Link2 className="w-3.5 h-3.5 text-amber-800" />
-                    Link para Publicadores
-                  </>
-                )}
-              </button>
+                {selectableTerritories.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="font-black text-sm sm:text-base text-slate-900 truncate">
+                {activeTerritory.name}
+              </span>
             )}
-
-            <button
-              onClick={() =>
-                setMapStyle(mapStyle === 'calles' ? 'satelite' : 'calles')
-              }
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs cursor-pointer"
-            >
-              <Layers className="w-3.5 h-3.5 text-amber-300" />
-              {mapStyle === 'calles' ? '🛰️ Satélite' : '🗺️ Calles'}
-            </button>
           </div>
+
+          {activeSlot && (
+            <button
+              onClick={handleCopyGroupLink}
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 font-extrabold text-xs cursor-pointer"
+            >
+              {copiedPublisherLink ? (
+                <>
+                  <Copy className="w-3.5 h-3.5 text-emerald-700" />
+                  ¡Copiado!
+                </>
+              ) : (
+                <>
+                  <Link2 className="w-3.5 h-3.5 text-amber-800" />
+                  Link Publicadores
+                </>
+              )}
+            </button>
+          )}
         </div>
-
-        {isPickingOnMap && (
-          <div className="bg-amber-500 text-white px-4 py-2.5 font-extrabold text-sm flex items-center justify-between shadow-md z-20">
-            <span>
-              👆 Toque exactamente sobre el mapa donde está la dirección...
-            </span>
-            <button
-              onClick={() => setIsPickingOnMap(false)}
-              className="bg-white text-amber-900 px-2.5 py-1 rounded-lg text-xs font-black cursor-pointer"
-            >
-              Cancelar
-            </button>
-          </div>
-        )}
 
         {(gpsStatusText || currentUserBlock) && (
           <div className="bg-blue-900 text-white px-3.5 py-1.5 text-xs sm:text-sm font-bold flex items-center justify-between z-10">
             <span>
               {gpsStatusText ||
                 (currentUserBlock
-                  ? `📍 Tu GPS indica que estás en la Manzana ${currentUserBlock.code}`
+                  ? `📍 Estás en Manzana ${currentUserBlock.code}`
                   : '')}
             </span>
           </div>
         )}
 
-        <div
-          ref={mapContainerRef}
-          className="flex-1 min-h-[260px] lg:min-h-0 w-full z-0 bg-slate-900"
-        />
+        {/* Contenedor del mapa con controles flotantes */}
+        <div className="relative flex-1 min-h-[280px] lg:min-h-0 w-full">
+          <div
+            ref={mapContainerRef}
+            className="w-full h-full z-0 bg-slate-900"
+          />
 
-        {/* Tarjeta flotante al tocar un pin en el mapa */}
-        {selectedPoint && (
-          <div className="absolute top-16 left-3 right-3 sm:left-auto sm:right-4 sm:w-96 z-[1000] bg-white rounded-2xl shadow-2xl border-2 border-blue-900 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <span
-                  className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase ${
-                    selectedPoint.category === 'no_visitar'
-                      ? 'bg-red-100 text-red-900'
-                      : selectedPoint.status === 'atendido'
-                      ? 'bg-emerald-100 text-emerald-900'
-                      : 'bg-orange-100 text-orange-900'
-                  }`}
-                >
-                  {selectedPoint.category === 'no_visitar'
-                    ? '🛑 NO VISITAR'
-                    : selectedPoint.category === 'casa_rural'
-                    ? '🏡 Casa Rural'
-                    : '🏠 Casa No en Casa'}
-                  {selectedPoint.shortCode
-                    ? ` • #${selectedPoint.shortCode}`
-                    : selectedPoint.blockCode
-                    ? ` • Manzana ${selectedPoint.blockCode}`
-                    : ''}
-                </span>
-                <h4 className="font-black text-base text-slate-900 mt-1">
-                  {selectedPoint.label}
-                </h4>
-                {selectedPoint.notes && (
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    {selectedPoint.notes}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={() => setSelectedPointId(null)}
-                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <a
-              href={getGoogleMapsNavigationUrl(
-                selectedPoint.lat,
-                selectedPoint.lng
-              )}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full py-3 px-4 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
-            >
-              <Navigation className="w-4 h-4 text-amber-300" />
-              Cómo llegar a esta puerta (Google Maps)
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-
-            {(selectedPoint.category === 'no_en_casa' ||
-              selectedPoint.category === 'casa_rural') && (
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  onClick={() => {
-                    onUpdateHouseStatus(
-                      selectedPoint.id,
-                      'atendido',
-                      'Se encontró a la persona y se predicó'
-                    );
-                    setSelectedPointId(null);
-                  }}
-                  className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Check className="w-4 h-4" />
-                  ¡Ya Atendió!
-                </button>
-                <button
-                  onClick={() => {
-                    onUpdateHouseStatus(
-                      selectedPoint.id,
-                      'no_en_casa',
-                      'Se volvió a tocar y no había nadie'
-                    );
-                    setSelectedPointId(null);
-                  }}
-                  className="py-2.5 px-3 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Clock className="w-4 h-4" />
-                  Sigue sin haber nadie
-                </button>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs text-slate-400">
-              <span>
-                Intentos registrados: {selectedPoint.attempts.length || 1}
+          {/* Fila flotante superior: aviso táctil + botón Satélite/Calles */}
+          <div className="absolute top-2.5 left-12 right-2.5 z-[1000] flex items-center justify-between gap-2 pointer-events-none">
+            <div className="bg-slate-900/80 backdrop-blur-xs text-white px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold shadow-md border border-white/15 flex items-center gap-1.5 min-w-0">
+              <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="truncate">
+                Toque una casa en el mapa para anotar
               </span>
-              <button
-                onClick={() => {
-                  onDeleteHousePoint(selectedPoint.id);
-                  setSelectedPointId(null);
-                }}
-                className="text-red-600 hover:underline inline-flex items-center gap-1 font-semibold cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Borrar punto
-              </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                setMapStyle(mapStyle === 'calles' ? 'satelite' : 'calles')
+              }
+              className="pointer-events-auto shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-950 text-white font-bold text-xs shadow-lg border border-white/20 cursor-pointer"
+            >
+              <Layers className="w-3.5 h-3.5 text-amber-300" />
+              <span>{mapStyle === 'calles' ? '🛰️ Satélite' : '🗺️ Calles'}</span>
+            </button>
           </div>
-        )}
 
-        {/* BARRA INFERIOR DEL CONDUCTOR: ANOTAR "NO EN CASA" O "🛑 NO VISITAR" */}
-        <div className="bg-white border-t-2 border-slate-200 p-2.5 sm:p-3 flex flex-wrap items-center justify-between gap-2 z-10">
-          <button
-            onClick={() => handleLocateMeGps(true, 'no_en_casa')}
-            className="flex-1 min-w-[170px] py-3.5 px-3 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs sm:text-sm rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition"
-          >
-            <PlusCircle className="w-4 h-4 shrink-0" />
-            <span>+ ANOTAR "NO EN CASA"</span>
-          </button>
+          {/* Fila flotante inferior dentro del mapa: GPS + Marcar Territorio Completado */}
+          <div className="absolute bottom-3 left-3 right-3 z-[1000] flex items-center justify-between gap-2 pointer-events-none">
+            <button
+              type="button"
+              onClick={() => handleLocateMeGps(false)}
+              title="Ubicar mi posición GPS"
+              className="pointer-events-auto py-2.5 px-3 rounded-xl bg-white/95 hover:bg-white text-blue-900 font-extrabold text-xs shadow-xl border-2 border-blue-600 flex items-center gap-1.5 cursor-pointer"
+            >
+              <Crosshair className="w-4 h-4 text-blue-700" />
+              <span>Mi GPS</span>
+            </button>
 
-          <button
-            onClick={() => handleLocateMeGps(true, 'no_visitar')}
-            className="py-3.5 px-3 bg-red-600 hover:bg-red-700 text-white font-black text-xs sm:text-sm rounded-xl shadow-md flex items-center justify-center gap-1.5 cursor-pointer transition"
-          >
-            <ShieldAlert className="w-4 h-4 shrink-0" />
-            <span>+ NO VISITAR</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setShowReturnConfirmModal(true)}
+              className="pointer-events-auto py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-xl border-2 border-white flex items-center gap-1.5 cursor-pointer transition"
+            >
+              <Check className="w-4 h-4 shrink-0" />
+              <span>Marcar Territorio Completado</span>
+            </button>
+          </div>
 
-          <button
-            onClick={() => setIsPickingOnMap(!isPickingOnMap)}
-            className={`py-3.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm border-2 flex items-center justify-center gap-1 cursor-pointer transition ${
-              isPickingOnMap
-                ? 'bg-amber-100 border-amber-600 text-amber-950'
-                : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-800'
-            }`}
-          >
-            <MapPin className="w-4 h-4 text-amber-700" />
-            <span>Tocar Mapa</span>
-          </button>
+          {/* Tarjeta flotante al tocar un pin en el mapa */}
+          {selectedPoint && (
+            <div className="absolute bottom-16 left-3 right-3 sm:left-auto sm:right-4 sm:w-96 z-[1001] bg-white rounded-2xl shadow-2xl border-2 border-blue-900 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span
+                    className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase ${
+                      selectedPoint.category === 'no_visitar'
+                        ? 'bg-red-100 text-red-900'
+                        : selectedPoint.status === 'atendido'
+                        ? 'bg-emerald-100 text-emerald-900'
+                        : 'bg-orange-100 text-orange-900'
+                    }`}
+                  >
+                    {selectedPoint.category === 'no_visitar'
+                      ? '🛑 NO VISITAR'
+                      : selectedPoint.category === 'casa_rural'
+                      ? '🏡 Casa Rural'
+                      : '🏠 Casa No en Casa'}
+                    {selectedPoint.shortCode
+                      ? ` • #${selectedPoint.shortCode}`
+                      : selectedPoint.blockCode
+                      ? ` • Manzana ${selectedPoint.blockCode}`
+                      : ''}
+                  </span>
+                  <h4 className="font-black text-base text-slate-900 mt-1">
+                    {selectedPoint.label}
+                  </h4>
+                  {selectedPoint.notes && (
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      {selectedPoint.notes}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setSelectedPointId(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-          <button
-            onClick={() => handleLocateMeGps(false)}
-            title="Ubicar mi posición GPS"
-            className="py-3.5 px-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 border-2 border-blue-300 text-blue-900 font-extrabold text-xs flex items-center gap-1 cursor-pointer"
-          >
-            <Crosshair className="w-4 h-4 text-blue-700" />
-          </button>
+              <a
+                href={getGoogleMapsNavigationUrl(
+                  selectedPoint.lat,
+                  selectedPoint.lng
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3 px-4 bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm transition"
+              >
+                <Navigation className="w-4 h-4 text-amber-300" />
+                Cómo llegar a esta puerta (Google Maps)
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+
+              {(selectedPoint.category === 'no_en_casa' ||
+                selectedPoint.category === 'casa_rural') && (
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    onClick={() => {
+                      onUpdateHouseStatus(
+                        selectedPoint.id,
+                        'atendido',
+                        'Se encontró a la persona y se predicó'
+                      );
+                      setSelectedPointId(null);
+                    }}
+                    className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Check className="w-4 h-4" />
+                    ¡Ya Atendió!
+                  </button>
+                  <button
+                    onClick={() => {
+                      onUpdateHouseStatus(
+                        selectedPoint.id,
+                        'no_en_casa',
+                        'Se volvió a tocar y no había nadie'
+                      );
+                      setSelectedPointId(null);
+                    }}
+                    className="py-2.5 px-3 bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Clock className="w-4 h-4" />
+                    Sigue sin haber nadie
+                  </button>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs text-slate-400">
+                <span>
+                  Intentos registrados: {selectedPoint.attempts.length || 1}
+                </span>
+                <button
+                  onClick={() => {
+                    onDeleteHousePoint(selectedPoint.id);
+                    setSelectedPointId(null);
+                  }}
+                  className="text-red-600 hover:underline inline-flex items-center gap-1 font-semibold cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Borrar punto
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* PANEL DERECHO DEL CONDUCTOR: COMPLETAR MANZANAS, COMPLETAR TERRITORIO Y LISTA EN LA NUBE */}
-      <div className="w-full lg:w-[420px] shrink-0 bg-white border-t-2 lg:border-t-0 lg:border-l-2 border-slate-200 flex flex-col lg:h-full lg:overflow-y-auto">
+      {/* PANEL DEL CONDUCTOR: MANZANAS Y LISTAS SIMPLIFICADAS */}
+      <div className="w-full lg:w-[400px] shrink-0 bg-white border-t-2 lg:border-t-0 lg:border-l-2 border-slate-200 flex flex-col lg:h-full lg:overflow-y-auto">
         <div className="p-4 space-y-5">
-          {/* 1. CONTROL DE MANZANAS (1A, 1B...) Y COMPLETAR TODO EL TERRITORIO */}
-          <div className="space-y-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
-                Control de Manzanas y Territorio ({activeTerritory.name})
-              </h3>
-              <span
-                className={`text-xs font-black px-2 py-0.5 rounded ${
-                  activeTerritory.status === 'completado'
-                    ? 'bg-emerald-100 text-emerald-900'
-                    : 'bg-blue-100 text-blue-900'
-                }`}
-              >
-                {activeTerritory.status === 'completado'
-                  ? '✓ Completado'
-                  : 'En curso'}
-              </span>
-            </div>
+          {/* 1. Manzanas en píldoras compactas */}
+          {territoryBlocks.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-600">
+                  Manzanas (
+                  {
+                    territoryBlocks.filter((b) => b.status === 'completada')
+                      .length
+                  }
+                  /{territoryBlocks.length})
+                </h3>
+                <span className="text-[11px] font-semibold text-slate-400">
+                  Toque para marcar
+                </span>
+              </div>
 
-            {territoryBlocks.length > 0 && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-3 gap-2">
                 {territoryBlocks.map((block) => {
                   const isDone = block.status === 'completada';
                   return (
@@ -1262,22 +1323,15 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                             activeTerritory.assignedToName
                         )
                       }
-                      className={`p-3 rounded-xl border-2 text-left transition cursor-pointer flex items-center justify-between ${
+                      className={`py-2 px-2.5 rounded-xl border-2 font-black text-xs flex items-center justify-between gap-1 transition cursor-pointer ${
                         isDone
                           ? 'bg-emerald-600 border-emerald-700 text-white'
-                          : 'bg-white border-slate-300 text-slate-900 hover:border-blue-500'
+                          : 'bg-slate-50 border-slate-200 text-slate-800 hover:border-blue-500'
                       }`}
                     >
-                      <div>
-                        <div className="font-black text-sm">
-                          Manzana {block.code}
-                        </div>
-                        <div className="text-[11px] font-bold opacity-90">
-                          {isDone ? '✓ Completada' : 'Toque para completar'}
-                        </div>
-                      </div>
+                      <span>{block.code}</span>
                       <CheckCircle2
-                        className={`w-5 h-5 ${
+                        className={`w-4 h-4 shrink-0 ${
                           isDone ? 'text-white' : 'text-slate-300'
                         }`}
                       />
@@ -1285,50 +1339,15 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                   );
                 })}
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Botón directo del Conductor para marcar TODO EL TERRITORIO como completado */}
-            {activeTerritory.status !== 'completado' ? (
-              <button
-                onClick={() =>
-                  onCompleteWholeTerritory(
-                    activeTerritory.id,
-                    activeSlot?.conductorName || activeTerritory.assignedToName
-                  )
-                }
-                className="w-full py-3 px-4 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs sm:text-sm rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer transition"
-              >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                Marcar TODO el {activeTerritory.name} como Completado
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <div className="text-xs font-bold text-emerald-900 bg-emerald-100 border border-emerald-300 px-3 py-2 rounded-xl">
-                  🎉 Este territorio ya fue marcado como completado y registrado
-                  en el S-13.
-                </div>
-                <button
-                  onClick={() =>
-                    onResetTerritory(
-                      activeTerritory.id,
-                      activeSlot?.conductorName || activeTerritory.assignedToName
-                    )
-                  }
-                  className="w-full py-2.5 px-3 bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Reiniciar Territorio para Próxima Vuelta
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 2. LISTA EN LA NUBE DE CASAS "NO EN CASA" PENDIENTES */}
+          {/* 2. Lista de casas "No en Casa" pendientes */}
           <div className="space-y-2.5">
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
               {activeTerritory.type === 'rural'
-                ? `Casas Rurales en la Nube (${territoryPoints.length})`
-                : `Casas "No en Casa" en la Nube (${pendingNotAtHome.length})`}
+                ? `Casas Rurales (${territoryPoints.length})`
+                : `Casas "No en Casa" (${pendingNotAtHome.length})`}
             </h3>
 
             {activeTerritory.type === 'rural' ? (
@@ -1377,7 +1396,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
               </div>
             ) : pendingNotAtHome.length === 0 ? (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center text-sm text-slate-600">
-                No hay casas "No en casa" pendientes en la nube para{' '}
+                No hay casas "No en casa" pendientes para{' '}
                 {activeTerritory.name}.
               </div>
             ) : (
@@ -1435,7 +1454,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             )}
           </div>
 
-          {/* 3. DIRECCIONES "NO VISITAR" REGISTRADAS POR CONDUCTORES */}
+          {/* 3. Direcciones "NO VISITAR" */}
           <div className="space-y-2 pt-2 border-t border-slate-200">
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-red-700 flex items-center gap-1">
               <ShieldAlert className="w-3.5 h-3.5" />

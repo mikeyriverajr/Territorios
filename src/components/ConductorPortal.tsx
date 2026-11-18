@@ -12,7 +12,6 @@ import {
   Navigation,
   Share2,
   ShieldAlert,
-  Sparkles,
 } from 'lucide-react';
 import {
   Block,
@@ -291,12 +290,6 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                   className={`${theme.headerBg} px-5 py-4 border-b flex flex-wrap items-center justify-between gap-2.5`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`px-2.5 py-1 rounded-lg font-black text-xs uppercase tracking-wide ${theme.indexBadge}`}
-                    >
-                      Asignación #{idx + 1}
-                    </span>
-
                     {assignmentDate && (
                       <span
                         className={`inline-flex items-center gap-1.5 border font-black px-3 py-1 rounded-xl text-xs sm:text-sm ${theme.chipBg}`}
@@ -386,17 +379,6 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                                 ? '✓ Completado'
                                 : 'En curso'}
                             </span>
-                            {t.status !== 'completado' && (
-                              <button
-                                onClick={() =>
-                                  onCompleteWholeTerritory(t.id, conductor.name)
-                                }
-                                className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded-md cursor-pointer"
-                              >
-                                <Sparkles className="w-3 h-3" />
-                                Completar
-                              </button>
-                            )}
                           </div>
                         ))}
                       </div>

@@ -16,6 +16,7 @@ import {
 } from './types/territory';
 import {
   appendSyncAction,
+  completeAndReturnTerritory,
   fetchCloudDatabase,
   generateHouseShortCode,
   loadDatabase,
@@ -418,6 +419,20 @@ export const App: React.FC = () => {
     setDb(nextDb);
   };
 
+  const handleCompleteAndReturnTerritory = (
+    territoryId: string,
+    conductorName?: string
+  ) => {
+    const nextDb = completeAndReturnTerritory(
+      db,
+      territoryId,
+      conductorName || loggedConductor?.name || 'Conductor'
+    );
+    setDb(nextDb);
+    setMapOpenForTerritoryId(null);
+    setActiveSlotForMap(null);
+  };
+
   // ESPERA INICIAL DE SINCRONIZACIÓN CON LA NUBE ANTES DE MOSTRAR EL ASISTENTE
   if (!db.isConfigured && !initialCloudCheckDone && !isWizardOpen) {
     return (
@@ -615,15 +630,6 @@ export const App: React.FC = () => {
             </button>
           )}
 
-          {mapOpenForTerritoryId && (
-            <button
-              onClick={() => setMapOpenForTerritoryId(null)}
-              className="px-3 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-extrabold text-xs sm:text-sm cursor-pointer"
-            >
-              Volver al Panel
-            </button>
-          )}
-
           <button
             onClick={() => {
               setAuthRole(null);
@@ -678,6 +684,7 @@ export const App: React.FC = () => {
             onUpdateBlockStatus={handleUpdateBlockStatus}
             onCompleteWholeTerritory={handleCompleteWholeTerritory}
             onResetTerritory={handleResetTerritory}
+            onCompleteAndReturnTerritory={handleCompleteAndReturnTerritory}
           />
         ) : authRole === 'conductor' && loggedConductor ? (
           <ConductorPortal

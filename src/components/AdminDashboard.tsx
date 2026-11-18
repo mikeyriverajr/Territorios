@@ -16,12 +16,14 @@ import {
   Map,
   Plus,
   RefreshCw,
+  Search,
   Send,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
   UserPlus,
+  X,
 } from 'lucide-react';
 import {
   AppDatabase,
@@ -224,6 +226,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [territorySortBy, setTerritorySortBy] = useState<
     'number' | 'oldest_worked' | 'recent_completed' | 'status' | 'assignee'
   >('number');
+  const [territorySearchQuery, setTerritorySearchQuery] = useState<string>('');
   const hasEnvSupabase = getEnvCloudConfig().enabled;
 
   const handleExportGoogleMapsKml = (
@@ -464,6 +467,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
     return list;
   }, [db.territories, db.blocks, db.s13History, territorySortBy]);
+
+  const filteredTerritoriesForTab = useMemo(() => {
+    const normalizeText = (val: string) =>
+      val
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+    const q = normalizeText(territorySearchQuery);
+    if (!q) return sortedTerritoriesForTab;
+
+    return sortedTerritoriesForTab.filter((t) => {
+      const slotAssignees = (db.schedule || [])
+        .filter((s) => (s.territoryIds || []).includes(t.id))
+        .map((s) => s.conductorName || '')
+        .join(' ');
+      const searchable = normalizeText(
+        `${t.name} ${t.number} ${t.description || ''} ${
+          t.assignedToName || ''
+        } ${slotAssignees}`
+      );
+      return searchable.includes(q);
+    });
+  }, [sortedTerritoriesForTab, territorySearchQuery, db.schedule]);
 
   const sortedSchedule = useMemo(() => {
     return [...(db.schedule || [])]
@@ -1636,43 +1664,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <h2 className="text-xl font-black text-slate-900">
                 Estado de Territorios, Asignaciones y Lista de "No en Casa"
               </h2>
-              <div className="flex items-center gap-2">
-                <label
-                  htmlFor="territory-sort-select"
-                  className="text-xs font-extrabold uppercase text-slate-600"
-                >
-                  Ordenar por:
-                </label>
-                <select
-                  id="territory-sort-select"
-                  value={territorySortBy}
-                  onChange={(e) =>
-                    setTerritorySortBy(
-                      e.target.value as
-                        | 'number'
-                        | 'oldest_worked'
-                        | 'recent_completed'
-                        | 'status'
-                        | 'assignee'
-                    )
-                  }
-                  className="px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold text-xs sm:text-sm text-slate-800 cursor-pointer"
-                >
-                  <option value="number">Número (1 → N)</option>
-                  <option value="oldest_worked">
-                    Trabajados hace más tiempo (Prioridad)
-                  </option>
-                  <option value="recent_completed">
-                    Completados recientemente
-                  </option>
-                  <option value="status">Estado (En curso primero)</option>
-                  <option value="assignee">Asignado a (A → Z)</option>
-                </select>
+              <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                <div className="relative flex-1 sm:flex-initial sm:w-72">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={territorySearchQuery}
+                    onChange={(e) => setTerritorySearchQuery(e.target.value)}
+                    placeholder="Buscar por territorio o asignado..."
+                    aria-label="Buscar por territorio o asignado"
+                    className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-300 bg-white font-semibold text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-blue-600"
+                  />
+                  {territorySearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setTerritorySearchQuery('')}
+                      title="Limpiar búsqueda"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label
+                    htmlFor="territory-sort-select"
+                    className="text-xs font-extrabold uppercase text-slate-600"
+                  >
+                    Ordenar por:
+                  </label>
+                  <select
+                    id="territory-sort-select"
+                    value={territorySortBy}
+                    onChange={(e) =>
+                      setTerritorySortBy(
+                        e.target.value as
+                          | 'number'
+                          | 'oldest_worked'
+                          | 'recent_completed'
+                          | 'status'
+                          | 'assignee'
+                      )
+                    }
+                    className="px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold text-xs sm:text-sm text-slate-800 cursor-pointer"
+                  >
+                    <option value="number">Número (1 → N)</option>
+                    <option value="oldest_worked">
+                      Trabajados hace más tiempo (Prioridad)
+                    </option>
+                    <option value="recent_completed">
+                      Completados recientemente
+                    </option>
+                    <option value="status">Estado (En curso primero)</option>
+                    <option value="assignee">Asignado a (A → Z)</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {sortedTerritoriesForTab.map((t) => {
+            {filteredTerritoriesForTab.length === 0 ? (
+              <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center space-y-2">
+                <div className="text-sm font-black text-slate-800">
+                  No se encontraron territorios para "{territorySearchQuery}"
+                </div>
+                <p className="text-xs text-slate-500">
+                  Intenta buscar por otro nombre o número de territorio, o por el nombre de quien lo tiene asignado.
+                </p>
+                {territorySearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setTerritorySearchQuery('')}
+                    className="mt-1 px-3 py-1.5 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-900 font-extrabold text-xs cursor-pointer"
+                  >
+                    Mostrar todos los territorios
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {filteredTerritoriesForTab.map((t) => {
                 const tBlocks = db.blocks
                   .filter((b) => b.territoryId === t.id)
                   .sort((a, b) => a.code.localeCompare(b.code));
@@ -1903,7 +1974,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 );
               })}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Historial S-13 */}
