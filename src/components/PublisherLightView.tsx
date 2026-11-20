@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Crosshair,
   ExternalLink,
+  HelpCircle,
   Home,
   Layers,
   MapPin,
@@ -22,6 +23,7 @@ import {
 import { getPolygonCentroid, isPointInPolygon } from '../services/kmlImporter';
 import { findBlockForCoordinates } from '../services/storageAndSync';
 import { getGoogleMapsNavigationUrl } from '../services/notificationHelper';
+import { HelpCenterModal } from './HelpCenterModal';
 
 interface PublisherLightViewProps {
   slot: ScheduleSlot;
@@ -104,6 +106,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   } | null>(null);
 
   const [isChangingBlock, setIsChangingBlock] = useState<boolean>(false);
+  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
@@ -501,6 +504,15 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
 
         <div className="flex items-center gap-2">
           <button
+            type="button"
+            onClick={() => setIsHelpOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1 cursor-pointer border border-blue-500"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
+            <span>Ayuda</span>
+          </button>
+
+          <button
             onClick={() =>
               setMapStyle(mapStyle === 'satelite' ? 'calles' : 'satelite')
             }
@@ -821,6 +833,12 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
           </form>
         </div>
       )}
+
+      <HelpCenterModal
+        isOpen={isHelpOpen}
+        initialCategory="publicador"
+        onClose={() => setIsHelpOpen(false)}
+      />
     </div>
   );
 };

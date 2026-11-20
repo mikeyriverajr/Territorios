@@ -8,6 +8,7 @@ import {
   Copy,
   FileUp,
   FolderGit2,
+  HelpCircle,
   Plus,
   Rocket,
   ShieldCheck,
@@ -39,6 +40,8 @@ import {
   saveCloudConfig,
   SupabaseConnectResult,
 } from '../services/storageAndSync';
+import { HelpCenterModal } from './HelpCenterModal';
+import { HelpCategoryId } from '../services/helpContent';
 
 interface StartupWizardProps {
   onCompleteWizard: (configuredDb: AppDatabase) => void;
@@ -50,6 +53,8 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
   onCancel,
 }) => {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [wizardHelpCategory, setWizardHelpCategory] =
+    useState<HelpCategoryId | null>(null);
 
   // Paso 1: Congregación y Conexión a Supabase
   const [congregationName, setCongregationName] = useState<string>('');
@@ -353,6 +358,19 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() =>
+                setWizardHelpCategory(
+                  step === 1 ? 'nube_s13' : step === 2 ? 'kml_mapas' : 'admin'
+                )
+              }
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white inline-flex items-center gap-1 cursor-pointer"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
+              <span>Ayuda</span>
+            </button>
+
             {onCancel && (
               <button
                 type="button"
@@ -1094,6 +1112,13 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
           )}
         </div>
       </div>
+
+      <HelpCenterModal
+        isOpen={wizardHelpCategory !== null}
+        initialCategory={wizardHelpCategory || 'inicio_rapido'}
+        congregationName={congregationName}
+        onClose={() => setWizardHelpCategory(null)}
+      />
     </div>
   );
 };

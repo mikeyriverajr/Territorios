@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, RefreshCw, ShieldCheck, User } from 'lucide-react';
+import { HelpCircle, LogOut, RefreshCw, ShieldCheck, User } from 'lucide-react';
 import {
   AppDatabase,
   Block,
@@ -31,6 +31,8 @@ import { ConductorPortal } from './components/ConductorPortal';
 import { PublisherLightView } from './components/PublisherLightView';
 import { FieldMapView } from './components/FieldMapView';
 import { AdminDashboard } from './components/AdminDashboard';
+import { HelpCenterModal } from './components/HelpCenterModal';
+import { HelpCategoryId } from './services/helpContent';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -133,6 +135,8 @@ export const App: React.FC = () => {
     () => Boolean(loadDatabase().isConfigured)
   );
   const [isWizardOpen, setIsWizardOpen] = useState<boolean>(false);
+  const [helpModalCategory, setHelpModalCategory] =
+    useState<HelpCategoryId | null>(null);
 
   // Sincronización periódica con la nube (Supabase o /api/cloud-state)
   useEffect(() => {
@@ -549,6 +553,15 @@ export const App: React.FC = () => {
               </div>
               <span className="font-black text-base">{db.congregationName}</span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setHelpModalCategory('inicio_rapido')}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs sm:text-sm inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <HelpCircle className="w-4 h-4 text-amber-300" />
+              <span>Ayuda</span>
+            </button>
           </header>
 
           <LoginView
@@ -560,6 +573,13 @@ export const App: React.FC = () => {
               setLoggedConductor(conductor || null);
               setMapOpenForTerritoryId(null);
             }}
+          />
+
+          <HelpCenterModal
+            isOpen={helpModalCategory !== null}
+            initialCategory={helpModalCategory || 'inicio_rapido'}
+            congregationName={db.congregationName}
+            onClose={() => setHelpModalCategory(null)}
           />
         </div>
       </ErrorBoundary>
@@ -596,6 +616,20 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              setHelpModalCategory(
+                authRole === 'admin' ? 'admin' : 'conductor'
+              )
+            }
+            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs sm:text-sm inline-flex items-center gap-1.5 cursor-pointer"
+            title="Abrir Centro de Ayuda y Manuales"
+          >
+            <HelpCircle className="w-4 h-4 text-amber-300" />
+            <span className="hidden sm:inline">Ayuda</span>
+          </button>
+
           {loggedConductor?.isAdmin && (
             <button
               onClick={() => {
@@ -978,6 +1012,15 @@ export const App: React.FC = () => {
           />
         )}
       </main>
+
+      <HelpCenterModal
+        isOpen={helpModalCategory !== null}
+        initialCategory={
+          helpModalCategory || (authRole === 'admin' ? 'admin' : 'conductor')
+        }
+        congregationName={db.congregationName}
+        onClose={() => setHelpModalCategory(null)}
+      />
     </div>
   </ErrorBoundary>
 );

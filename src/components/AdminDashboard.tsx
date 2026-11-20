@@ -12,6 +12,7 @@ import {
   FileSpreadsheet,
   FileUp,
   FolderGit2,
+  HelpCircle,
   Home,
   Map,
   Plus,
@@ -60,6 +61,7 @@ import {
   saveCloudConfig,
 } from '../services/storageAndSync';
 import { MapEditorView } from './MapEditorView';
+import { HelpCenterModal } from './HelpCenterModal';
 
 const DAYS_OF_WEEK = [
   'Domingo',
@@ -160,7 +162,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const db = useMemo(() => sanitizeDatabase(rawDb || {}), [rawDb]);
 
   const [activeTab, setActiveTab] = useState<
-    'programa' | 'notificaciones' | 'nube_s13' | 'editor' | 'ajustes'
+    'programa' | 'notificaciones' | 'nube_s13' | 'editor' | 'ajustes' | 'ayuda'
   >('programa');
 
   // Estados para Conductores
@@ -751,6 +753,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             { key: 'nube_s13', label: 'Territorios y S-13', icon: FileSpreadsheet },
             { key: 'editor', label: 'Editor de Mapas', icon: Edit3 },
             { key: 'ajustes', label: 'Ajustes', icon: Cloud },
+            { key: 'ayuda', label: 'Ayuda y Manual', icon: HelpCircle },
           ] as const
         ).map((tab) => {
           const Icon = tab.icon;
@@ -2402,6 +2405,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
         </div>
         </div>
+      )}
+
+      {/* MÓDULO 6: CENTRO DE AYUDA Y MANUAL DE USUARIO */}
+      {activeTab === 'ayuda' && (
+        <HelpCenterModal
+          inline={true}
+          initialCategory="admin"
+          congregationName={db.congregationName}
+        />
       )}
     </div>
   );
