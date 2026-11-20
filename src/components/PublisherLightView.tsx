@@ -24,6 +24,7 @@ import { getPolygonCentroid, isPointInPolygon } from '../services/kmlImporter';
 import { findBlockForCoordinates } from '../services/storageAndSync';
 import { getGoogleMapsNavigationUrl } from '../services/notificationHelper';
 import { HelpCenterModal } from './HelpCenterModal';
+import { TerriMapLogo } from './TerriMapLogo';
 
 interface PublisherLightViewProps {
   slot: ScheduleSlot;
@@ -491,14 +492,17 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col">
       {/* Encabezado compacto */}
-      <header className="bg-slate-900 text-white px-3.5 py-2.5 flex items-center justify-between shadow-md">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-            {slot.dayName} ({slot.time} hs) • Conductor: {slot.conductorName}
-          </div>
-          <div className="font-black text-base">
-            {activeTerritory?.name} — Toque la casa en el mapa para anotar "No
-            en casa"
+      <header className="bg-slate-900 text-white px-3.5 py-2.5 flex items-center justify-between gap-2 shadow-md">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <TerriMapLogo className="w-8 h-8 shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 truncate">
+              {slot.dayName} ({slot.time} hs) • Conductor: {slot.conductorName}
+            </div>
+            <div className="font-black text-sm sm:text-base truncate">
+              {activeTerritory?.name} — Toque la casa en el mapa para anotar "No
+              en casa"
+            </div>
           </div>
         </div>
 
@@ -506,10 +510,11 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
           <button
             type="button"
             onClick={() => setIsHelpOpen(true)}
-            className="px-3 py-1.5 rounded-xl bg-blue-700 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1 cursor-pointer border border-blue-500"
+            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 inline-flex items-center justify-center cursor-pointer transition shrink-0"
+            title="Ayuda"
+            aria-label="Abrir Ayuda"
           >
-            <HelpCircle className="w-3.5 h-3.5 text-amber-300" />
-            <span>Ayuda</span>
+            <HelpCircle className="w-4 h-4 text-amber-300" />
           </button>
 
           <button

@@ -42,6 +42,7 @@ import {
 } from '../services/storageAndSync';
 import { HelpCenterModal } from './HelpCenterModal';
 import { HelpCategoryId } from '../services/helpContent';
+import { TerriMapLogo } from './TerriMapLogo';
 
 interface StartupWizardProps {
   onCompleteWizard: (configuredDb: AppDatabase) => void;
@@ -344,15 +345,13 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
         {/* Barra superior del Asistente */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/90 border border-slate-700 rounded-2xl px-5 py-4 text-white">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-blue-600 flex items-center justify-center text-2xl shadow-md">
-              🪄
-            </div>
+            <TerriMapLogo className="w-11 h-11 shrink-0 shadow-md" />
             <div>
               <div className="text-xs font-extrabold uppercase tracking-wider text-amber-300">
                 Configuración Inicial • Paso {step} de 4
               </div>
               <h1 className="text-lg sm:text-xl font-black">
-                Preparar Sistema en Vivo para la Congregación
+                Configurar TerriMap para la Congregación
               </h1>
             </div>
           </div>

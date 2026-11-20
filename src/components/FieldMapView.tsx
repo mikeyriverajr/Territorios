@@ -5,14 +5,13 @@ import {
   Check,
   CheckCircle2,
   Clock,
-  Copy,
   Crosshair,
   ExternalLink,
   Home,
   Layers,
-  Link2,
   MapPin,
   Navigation,
+  Share2,
   ShieldAlert,
   Trash2,
   X,
@@ -30,8 +29,11 @@ import {
 import { getPolygonCentroid } from '../services/kmlImporter';
 import { findBlockForCoordinates } from '../services/storageAndSync';
 import {
+  buildPublisherLinkWhatsAppMessage,
+  copyTextToClipboard,
   getGoogleMapsNavigationUrl,
   getPublisherGroupLink,
+  openWhatsAppShare,
 } from '../services/notificationHelper';
 
 interface FieldMapViewProps {
@@ -171,8 +173,6 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     useState<boolean>(false);
   const [isChangingBlock, setIsChangingBlock] = useState<boolean>(false);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
-  const [copiedPublisherLink, setCopiedPublisherLink] =
-    useState<boolean>(false);
 
   const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
   const [gpsStatusText, setGpsStatusText] = useState<string>('');
@@ -681,12 +681,14 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     });
   };
 
-  const handleCopyGroupLink = () => {
-    const slotId = activeSlot?.id || 'sched-1';
-    const url = getPublisherGroupLink(slotId);
-    navigator.clipboard.writeText(url);
-    setCopiedPublisherLink(true);
-    setTimeout(() => setCopiedPublisherLink(false), 3000);
+  const handleShareGroupLinkWhatsApp = () => {
+    if (!activeSlot) return;
+    const slotTerrNames = territories
+      .filter((t) => activeSlot.territoryIds.includes(t.id))
+      .map((t) => t.name);
+    const message = buildPublisherLinkWhatsAppMessage(activeSlot, slotTerrNames);
+    openWhatsAppShare(message);
+    void copyTextToClipboard(getPublisherGroupLink(activeSlot.id));
   };
 
   if (!activeTerritory) {
@@ -1100,20 +1102,13 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
           {activeSlot && (
             <button
-              onClick={handleCopyGroupLink}
-              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-400 font-extrabold text-xs cursor-pointer"
+              type="button"
+              onClick={handleShareGroupLinkWhatsApp}
+              title="Compartir link para publicadores por WhatsApp"
+              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-700 font-extrabold text-xs cursor-pointer shadow-2xs transition"
             >
-              {copiedPublisherLink ? (
-                <>
-                  <Copy className="w-3.5 h-3.5 text-emerald-700" />
-                  ¡Copiado!
-                </>
-              ) : (
-                <>
-                  <Link2 className="w-3.5 h-3.5 text-amber-800" />
-                  Link Publicadores
-                </>
-              )}
+              <Share2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Link Publicadores</span>
             </button>
           )}
         </div>
@@ -1157,8 +1152,8 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             </button>
           </div>
 
-          {/* Fila flotante inferior dentro del mapa: GPS + Marcar Territorio Completado */}
-          <div className="absolute bottom-3 left-3 right-3 z-[1000] flex items-center justify-between gap-2 pointer-events-none">
+          {/* Fila flotante inferior dentro del mapa: GPS */}
+          <div className="absolute bottom-3 left-3 right-3 z-[1000] flex items-center justify-start gap-2 pointer-events-none">
             <button
               type="button"
               onClick={() => handleLocateMeGps(false)}
@@ -1167,15 +1162,6 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             >
               <Crosshair className="w-4 h-4 text-blue-700" />
               <span>Mi GPS</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowReturnConfirmModal(true)}
-              className="pointer-events-auto py-2.5 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs sm:text-sm shadow-xl border-2 border-white flex items-center gap-1.5 cursor-pointer transition"
-            >
-              <Check className="w-4 h-4 shrink-0" />
-              <span>Marcar Territorio Completado</span>
             </button>
           </div>
 
@@ -1482,6 +1468,18 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                 </div>
               ))
             )}
+          </div>
+
+          {/* 4. Marcar Territorio Completado */}
+          <div className="pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setShowReturnConfirmModal(true)}
+              className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 cursor-pointer transition"
+            >
+              <Check className="w-4 h-4 shrink-0" />
+              <span>Marcar Territorio Completado</span>
+            </button>
           </div>
         </div>
       </div>

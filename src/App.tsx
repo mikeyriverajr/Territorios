@@ -33,6 +33,7 @@ import { FieldMapView } from './components/FieldMapView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { HelpCenterModal } from './components/HelpCenterModal';
 import { HelpCategoryId } from './services/helpContent';
+import { TerriMapLogo } from './components/TerriMapLogo';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -442,9 +443,7 @@ export const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
         <div className="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-sm w-full text-center space-y-3 shadow-2xl">
-          <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center mx-auto text-3xl animate-pulse">
-            🗺️
-          </div>
+          <TerriMapLogo className="w-14 h-14 mx-auto animate-pulse" />
           <h1 className="text-lg font-black">
             Sincronizando datos de la congregación...
           </h1>
@@ -548,10 +547,17 @@ export const App: React.FC = () => {
         <div className="min-h-screen flex flex-col bg-slate-100">
           <header className="h-16 bg-slate-900 text-white px-4 sm:px-6 flex items-center justify-between shadow-md">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg">
-                🗺️
+              <TerriMapLogo className="w-9 h-9 shrink-0" />
+              <div>
+                <div className="font-black text-base leading-tight tracking-tight">
+                  Terri<span className="text-amber-300">Map</span>
+                </div>
+                {db.congregationName && (
+                  <div className="text-[11px] font-semibold text-slate-300 leading-tight">
+                    {db.congregationName}
+                  </div>
+                )}
               </div>
-              <span className="font-black text-base">{db.congregationName}</span>
             </div>
 
             <button
@@ -590,30 +596,18 @@ export const App: React.FC = () => {
     <ErrorBoundary>
       <div className="min-h-screen flex flex-col bg-slate-100">
       <header className="h-16 bg-slate-900 text-white px-3 sm:px-6 flex items-center justify-between shadow-md z-30 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-black text-lg">
-            🗺️
-          </div>
-          <div>
-            <div className="font-black text-sm sm:text-base leading-tight">
-              {db.congregationName}
-            </div>
-            <div className="text-[11px] text-slate-300 flex items-center gap-2">
-              {authRole === 'admin' ? (
-                <span className="inline-flex items-center gap-1 text-amber-300 font-bold">
-                  <ShieldCheck className="w-3 h-3" />{' '}
-                  {loggedConductor
-                    ? `Admin: ${loggedConductor.name}`
-                    : 'Siervo de Territorios (Admin)'}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-blue-300 font-bold">
-                  <User className="w-3 h-3" /> Conductor: {loggedConductor?.name}
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setMapOpenForTerritoryId(null);
+            setActiveSlotForMap(null);
+          }}
+          className="rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-300/70 cursor-pointer shrink-0 transition hover:opacity-90"
+          title={`TerriMap${db.congregationName ? ` — ${db.congregationName}` : ''}`}
+          aria-label="TerriMap — Inicio"
+        >
+          <TerriMapLogo className="w-9 h-9 sm:w-10 sm:h-10" />
+        </button>
 
         <div className="flex items-center gap-2">
           <button
@@ -623,11 +617,11 @@ export const App: React.FC = () => {
                 authRole === 'admin' ? 'admin' : 'conductor'
               )
             }
-            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs sm:text-sm inline-flex items-center gap-1.5 cursor-pointer"
+            className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 inline-flex items-center justify-center cursor-pointer transition shrink-0"
             title="Abrir Centro de Ayuda y Manuales"
+            aria-label="Abrir Centro de Ayuda y Manuales"
           >
             <HelpCircle className="w-4 h-4 text-amber-300" />
-            <span className="hidden sm:inline">Ayuda</span>
           </button>
 
           {loggedConductor?.isAdmin && (

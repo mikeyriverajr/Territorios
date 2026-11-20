@@ -1,11 +1,11 @@
-const CACHE_NAME = 'territorios-pwa-v1';
+const CACHE_NAME = 'terrimap-pwa-v2';
 const TILE_CACHE_NAME = 'territorios-map-tiles-v1';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(['./', './index.html', './manifest.json']);
+      return cache.addAll(['./', './index.html', './manifest.json', './terrimap-icon.svg']);
     })
   );
 });

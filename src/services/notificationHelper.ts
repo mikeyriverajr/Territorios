@@ -22,6 +22,22 @@ export function getPublisherGroupLink(slotId: string): string {
 }
 
 /**
+ * Construye el mensaje de WhatsApp con el link del grupo para publicadores
+ */
+export function buildPublisherLinkWhatsAppMessage(
+  slot: ScheduleSlot,
+  territoryNames?: string[]
+): string {
+  const link = getPublisherGroupLink(slot.id);
+  const dayLabel = slot.dayName || slot.dayOfWeek || 'hoy';
+  const terrInfo =
+    territoryNames && territoryNames.length > 0
+      ? ` — ${territoryNames.join(', ')}`
+      : '';
+  return `🗺️ Link para anotar casas "No en casa" (${dayLabel} ${slot.time} hs${terrInfo}):\n${link}`;
+}
+
+/**
  * Formatea una salida individual exactamente con la plantilla requerida para WhatsApp
  */
 export function formatScheduleSlotMessage(slot: ScheduleSlot): string {
@@ -156,7 +172,7 @@ export async function triggerBrowserNotification(
       if (reg) {
         await reg.showNotification(title, {
           body,
-          icon: '/manifest.json',
+          icon: './terrimap-icon.svg',
           vibrate: [200, 100, 200],
         } as NotificationOptions);
         return true;

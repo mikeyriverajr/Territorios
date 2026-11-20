@@ -276,6 +276,9 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
             const territoryTitle =
               item.itemTerritories.map((t) => t.name).join(', ') ||
               'Territorio asignado';
+            const isAllCompleted =
+              item.itemTerritories.length > 0 &&
+              item.itemTerritories.every((t) => t.status === 'completado');
 
             return (
               <div
@@ -290,27 +293,35 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                   className={`${theme.headerBg} px-5 py-4 border-b flex flex-wrap items-center justify-between gap-2.5`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
+                    {isSlot && slot ? (
+                      <span className="inline-flex items-center gap-1.5 bg-slate-900 text-white font-black px-3.5 py-1.5 rounded-xl text-sm sm:text-base shadow-xs">
+                        <Clock className="w-4 h-4 text-amber-300 shrink-0" />
+                        {slot.dayName} — {slot.time} hs
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 bg-slate-900 text-white font-black px-3.5 py-1.5 rounded-xl text-sm sm:text-base shadow-xs">
+                        Territorio Personal
+                      </span>
+                    )}
+
                     {assignmentDate && (
                       <span
-                        className={`inline-flex items-center gap-1.5 border font-black px-3 py-1 rounded-xl text-xs sm:text-sm ${theme.chipBg}`}
+                        className={`inline-flex items-center gap-1.5 border font-bold px-2.5 py-1 rounded-xl text-xs ${theme.chipBg}`}
                       >
-                        <Calendar className="w-3.5 h-3.5" />
+                        <Calendar className="w-3.5 h-3.5 shrink-0" />
                         {assignmentDate}
                       </span>
                     )}
 
-                    {isSlot && slot ? (
-                      <span className="inline-flex items-center gap-1.5 bg-slate-900 text-white font-black px-3 py-1 rounded-xl text-xs sm:text-sm">
-                        <Clock className="w-3.5 h-3.5 text-amber-300" />
-                        {slot.dayName} — {slot.time} hs
-                      </span>
-                    ) : (
-                      <span
-                        className={`inline-flex items-center gap-1 border font-extrabold px-2.5 py-1 rounded-xl text-xs ${theme.chipBg}`}
-                      >
-                        Territorio Personal
-                      </span>
-                    )}
+                    <span
+                      className={`inline-flex items-center gap-1 border font-extrabold px-2.5 py-1 rounded-xl text-xs ${
+                        isAllCompleted
+                          ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                          : 'bg-white/90 text-slate-700 border-slate-300'
+                      }`}
+                    >
+                      {isAllCompleted ? '✓ Completado' : 'En curso'}
+                    </span>
                   </div>
 
                   <div className="font-black text-base sm:text-lg text-slate-900">
@@ -326,27 +337,37 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                     } gap-3.5`}
                   >
                     {isSlot && slot && (
-                      <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 flex items-center justify-between gap-3">
-                        <div className="font-black text-sm sm:text-base text-slate-900 flex items-start gap-1.5 min-w-0">
-                          <MapPin className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                          <span className="truncate">
-                            {slot.meetingPointName}
-                          </span>
+                      <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-2">
+                        <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                          Lugar de encuentro
                         </div>
-                        <a
-                          href={slot.meetingPointUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="shrink-0 inline-flex items-center gap-1.5 bg-white hover:bg-slate-100 text-blue-800 border border-blue-300 font-bold py-2 px-3 rounded-xl text-xs transition"
-                        >
-                          <Navigation className="w-3.5 h-3.5 text-blue-600" />
-                          Maps
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-black text-sm sm:text-base text-slate-900 flex items-start gap-1.5 min-w-0">
+                            <MapPin className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                            <span className="truncate">
+                              {slot.meetingPointName}
+                            </span>
+                          </div>
+                          {slot.meetingPointUrl && (
+                            <a
+                              href={slot.meetingPointUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="shrink-0 inline-flex items-center gap-1.5 bg-white hover:bg-slate-100 text-blue-800 border border-blue-300 font-bold py-2 px-3 rounded-xl text-xs transition"
+                            >
+                              <Navigation className="w-3.5 h-3.5 text-blue-600" />
+                              Maps
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
                       </div>
                     )}
 
-                    <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-2.5">
+                    <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-200 space-y-2">
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                        Falta por hacer
+                      </div>
                       <div className="flex flex-wrap gap-2 text-xs font-bold">
                         {itemBlocks.length > 0 && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200">
@@ -366,28 +387,17 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                           </span>
                         )}
                       </div>
-
-                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        {item.itemTerritories.map((t) => (
-                          <div
-                            key={t.id}
-                            className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2.5 py-1"
-                          >
-                            <span className="text-xs font-extrabold text-slate-800">
-                              {t.name}:{' '}
-                              {t.status === 'completado'
-                                ? '✓ Completado'
-                                : 'En curso'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
                     </div>
                   </div>
 
                   {assignmentNotes && (
-                    <div className="text-xs sm:text-sm bg-slate-100 border border-slate-200 text-slate-800 px-3.5 py-2 rounded-xl font-medium">
-                      {assignmentNotes}
+                    <div className="bg-slate-100 border border-slate-200 text-slate-800 px-3.5 py-2.5 rounded-xl space-y-1">
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
+                        Notas
+                      </div>
+                      <div className="text-xs sm:text-sm font-medium">
+                        {assignmentNotes}
+                      </div>
                     </div>
                   )}
 

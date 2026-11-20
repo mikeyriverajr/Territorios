@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, LogIn } from 'lucide-react';
 import { ConductorUser } from '../types/territory';
+import { TerriMapLogo } from './TerriMapLogo';
 
 interface LoginViewProps {
   congregationName: string;
@@ -67,12 +68,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
           className="bg-white rounded-3xl border-2 border-slate-200 shadow-xl p-6 sm:p-8 space-y-5"
         >
           <div className="text-center space-y-2">
-            <div className="w-16 h-16 rounded-2xl bg-blue-900 text-white flex items-center justify-center mx-auto text-3xl shadow-md">
-              🗺️
+            <TerriMapLogo className="w-16 h-16 mx-auto drop-shadow-md" />
+            <div>
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                Terri<span className="text-blue-700">Map</span>
+              </h1>
+              {congregationName && (
+                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 mt-0.5">
+                  {congregationName}
+                </div>
+              )}
             </div>
-            <h1 className="text-2xl font-black text-slate-900">
-              {congregationName || 'Territorios de la Congregación'}
-            </h1>
             <p className="text-sm text-slate-600">
               Seleccione su nombre e ingrese su PIN de acceso para entrar.
             </p>
