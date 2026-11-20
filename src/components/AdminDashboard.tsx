@@ -761,7 +761,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition ${
+              className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 text-center leading-tight cursor-pointer transition ${
                 activeTab === tab.key
                   ? 'bg-blue-700 text-white shadow-xs'
                   : 'text-slate-700 hover:bg-slate-100'
@@ -776,11 +776,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* PROGRAMA SEMANAL, ASIGNACIÓN DE TERRITORIOS Y CONDUCTORES */}
       {activeTab === 'programa' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          <div className="lg:col-span-2 min-w-0 space-y-6">
             <form
               onSubmit={handleCreateSlot}
-              className={`bg-white rounded-2xl border-2 p-5 sm:p-6 space-y-4 shadow-xs ${
+              className={`bg-white rounded-2xl border-2 p-4 sm:p-6 space-y-4 shadow-xs ${
                 editingSlotId ? 'border-amber-400' : 'border-slate-200'
               }`}
             >
@@ -800,8 +800,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               {/* Fecha + Día de la semana + Turno + Hora */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                     Fecha:
                   </label>
@@ -812,11 +812,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setSlotDate(e.target.value);
                       setDayOfWeek(dayOfWeekFromDate(e.target.value));
                     }}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
+                    className="w-full min-w-0 h-[42px] px-2.5 rounded-xl border border-slate-300 font-semibold text-sm bg-white"
                     required
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                     Día:
                   </label>
@@ -826,7 +826,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       setDayOfWeek(e.target.value);
                       setSlotDate(shiftDateToDayOfWeek(slotDate, e.target.value));
                     }}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                    className="w-full min-w-0 h-[42px] px-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
                   >
                     {DAYS_OF_WEEK.map((d) => (
                       <option key={d} value={d}>
@@ -835,14 +835,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ))}
                   </select>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                     Turno:
                   </label>
                   <select
                     value={shiftLabel}
                     onChange={(e) => setShiftLabel(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                    className="w-full min-w-0 h-[42px] px-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
                   >
                     <option value="Mañana">Mañana</option>
                     <option value="Tarde">Tarde</option>
@@ -850,7 +850,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="">(Sin turno)</option>
                   </select>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                     Hora:
                   </label>
@@ -858,21 +858,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="time"
                     value={time}
                     onChange={(e) => setTime(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-semibold text-sm"
+                    className="w-full min-w-0 h-[42px] px-2.5 rounded-xl border border-slate-300 font-semibold text-sm bg-white"
                     required
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                     Encargado:
                   </label>
                   <select
                     value={selectedConductorId}
                     onChange={(e) => setSelectedConductorId(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                    className="w-full min-w-0 h-[42px] px-3 rounded-xl border border-slate-300 font-bold text-sm bg-white"
                     required
                   >
                     <option value="" disabled>
@@ -885,15 +885,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ))}
                   </select>
                 </div>
-                <div>
-                  <div className="flex items-center justify-between mb-1">
+                <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-1">
                     <label className="block text-xs font-extrabold uppercase text-slate-600">
                       Ubicación:
                     </label>
                     <button
                       type="button"
                       onClick={() => setShowLocationManager((v) => !v)}
-                      className="text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded px-2 py-0.5 cursor-pointer"
+                      className="shrink-0 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded px-2 py-0.5 cursor-pointer"
                     >
                       {showLocationManager ? 'Cerrar lista' : '✏️ Personalizar'}
                     </button>
@@ -910,7 +910,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         setMeetingPointUrl(found.url || '');
                       }
                     }}
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                    className="w-full min-w-0 h-[42px] px-3 rounded-xl border border-slate-300 font-bold text-sm bg-white"
                     required
                   >
                     <option value="" disabled>
@@ -931,18 +931,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       )}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Punto de Encuentro (Link Maps):
-                  </label>
-                  <input
-                    type="text"
-                    value={meetingPointUrl}
-                    onChange={(e) => setMeetingPointUrl(e.target.value)}
-                    placeholder="https://maps.app.goo.gl/..."
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm"
-                  />
-                </div>
+              </div>
+
+              <div className="min-w-0">
+                <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                  Punto de Encuentro (Link Maps):
+                </label>
+                <input
+                  type="text"
+                  value={meetingPointUrl}
+                  onChange={(e) => setMeetingPointUrl(e.target.value)}
+                  placeholder="https://maps.app.goo.gl/..."
+                  className="w-full min-w-0 h-[42px] px-3 rounded-xl border border-slate-300 text-sm bg-white"
+                />
               </div>
 
               {showLocationManager && (
@@ -987,14 +988,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       value={newLocName}
                       onChange={(e) => setNewLocName(e.target.value)}
                       placeholder="Nombre (ej. Plaza Norte)"
-                      className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                      className="sm:col-span-2 w-full min-w-0 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
                     />
                     <input
                       type="text"
                       value={newLocUrl}
                       onChange={(e) => setNewLocUrl(e.target.value)}
                       placeholder="Link Google Maps (opcional)"
-                      className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+                      className="sm:col-span-2 w-full min-w-0 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
                     />
                     <button
                       type="button"
@@ -1022,11 +1023,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               )}
 
               {/* Selector enriquecido de territorios */}
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                   Territorio(s):
                 </label>
-                <div className="flex gap-2">
+                <div className="min-w-0">
                   <select
                     value={territoryToAdd}
                     onChange={(e) => {
@@ -1062,7 +1063,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       }
                       setTerritoryToAdd('');
                     }}
-                    className="flex-1 px-3 py-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
+                    className="w-full min-w-0 h-[42px] px-3 rounded-xl border border-slate-300 font-bold text-sm bg-white"
                   >
                     <option value="">+ Agregar territorio...</option>
                     {db.territories
@@ -1114,7 +1115,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
                   Notas para el conductor:
                 </label>
@@ -1123,7 +1124,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   value={slotNotes}
                   onChange={(e) => setSlotNotes(e.target.value)}
                   placeholder="Ej. Hay 1 No en casa en 1A y continuar con 1B..."
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm"
+                  className="w-full min-w-0 h-[42px] px-3 rounded-xl border border-slate-300 text-sm bg-white"
                 />
               </div>
 
@@ -1158,8 +1159,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
 
             {/* Programa semanal publicado */}
-            <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+            <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 sm:p-5 space-y-4 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
                 <div>
                   <h3 className="font-black text-lg text-slate-900">
                     Programa Semanal ({sortedSchedule.length})
@@ -1215,26 +1216,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   return (
                     <div
                       key={slot.id}
-                      className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${
+                      className={`p-3.5 sm:p-4 rounded-xl border space-y-3 min-w-0 ${
                         editingSlotId === slot.id
                           ? 'bg-amber-50 border-amber-300'
                           : 'bg-slate-50 border-slate-200'
                       }`}
                     >
-                      <div className="space-y-1">
-                        <div className="font-extrabold text-sm sm:text-base text-slate-900 flex items-center gap-1.5">
+                      <div className="space-y-1 min-w-0">
+                        <div className="font-extrabold text-sm sm:text-base text-slate-900 flex flex-wrap items-center gap-1.5">
                           <span>🔹</span>
                           <span>
                             {slot.dayOfWeek || slot.dayName} {slot.date ? `(${slot.date})` : ''} - {slot.time} hs
                           </span>
                         </div>
-                        <div className="text-xs text-slate-700 space-y-0.5">
+                        <div className="text-xs text-slate-700 space-y-0.5 min-w-0">
                           <div>👤 <strong>Encargado:</strong> {slot.conductorName}</div>
                           <div>📍 <strong>Ubicación:</strong> {slot.meetingPointName}</div>
                           {slot.meetingPointUrl && (
-                            <div className="text-[11px] text-blue-700 truncate max-w-md">
-                              🗺️ <strong>Punto de Encuentro:</strong>{' '}
-                              <a href={slot.meetingPointUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                            <div className="text-[11px] text-blue-700 flex items-baseline gap-1 min-w-0">
+                              <span className="shrink-0">
+                                🗺️ <strong>Punto de Encuentro:</strong>
+                              </span>
+                              <a
+                                href={slot.meetingPointUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:underline truncate min-w-0"
+                              >
                                 {slot.meetingPointUrl}
                               </a>
                             </div>
@@ -1247,7 +1255,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-slate-200/80">
                         <button
                           type="button"
                           onClick={() => handleCopySingleSlotText(slot)}
@@ -1299,7 +1307,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             if (editingSlotId === slot.id) resetSlotForm();
                             onDeleteScheduleSlot(slot.id);
                           }}
-                          className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 cursor-pointer"
+                          className="ml-auto p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 cursor-pointer"
                           title="Eliminar salida"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1313,7 +1321,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Vista previa en vivo del texto tal cual se enviará a WhatsApp */}
               {sortedSchedule.length > 0 && (
                 <div className="bg-slate-50 border border-slate-300 rounded-2xl p-4 space-y-2 mt-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                       💬 Vista previa del mensaje de WhatsApp:
                     </span>
@@ -1326,7 +1334,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       Copiar todo
                     </button>
                   </div>
-                  <div className="text-xs font-mono bg-white p-3.5 rounded-xl border border-slate-200 whitespace-pre-wrap text-slate-800 select-all leading-relaxed shadow-inner">
+                  <div className="text-xs font-mono bg-white p-3.5 rounded-xl border border-slate-200 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-slate-800 select-all leading-relaxed shadow-inner">
                     {buildWeeklyScheduleWhatsAppMessage(
                       db.congregationName,
                       sortedSchedule,
@@ -1340,9 +1348,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
 
           {/* Columna derecha (1/3): Gestión de Conductores y sus PINs de 4 dígitos */}
-          <div className="bg-white rounded-2xl border-2 border-slate-200 p-5 space-y-4 h-fit">
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 sm:p-5 space-y-4 h-fit min-w-0">
             <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-blue-700" />
+              <UserPlus className="w-5 h-5 text-blue-700 shrink-0" />
               Conductores y PINs de Acceso
             </h3>
             <p className="text-xs text-slate-600">
@@ -1356,7 +1364,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 value={newConductorName}
                 onChange={(e) => setNewConductorName(e.target.value)}
                 placeholder="Nombre (Ej. Hno. Luis Vega)"
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold"
+                className="w-full min-w-0 px-3 py-2 rounded-xl border border-slate-300 text-sm font-semibold"
                 required
               />
               <div className="flex gap-2">
@@ -1366,12 +1374,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   value={newConductorPin}
                   onChange={(e) => setNewConductorPin(e.target.value)}
                   placeholder="PIN 4 dígitos (Ej. 5555)"
-                  className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold"
+                  className="flex-1 w-full min-w-0 px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold"
                   required
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white font-black text-xs rounded-xl cursor-pointer"
+                  className="shrink-0 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white font-black text-xs rounded-xl cursor-pointer"
                 >
                   + Agregar
                 </button>
@@ -1395,15 +1403,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   return (
                     <div
                       key={c.id}
-                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs sm:text-sm ${
+                      className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm ${
                         c.isAdmin
                           ? 'bg-amber-50/70 border-amber-300'
                           : 'bg-slate-50 border-slate-200'
                       }`}
                     >
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="font-extrabold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                          <span>{c.name}</span>
+                          <span className="break-words">{c.name}</span>
                           {c.isAdmin && (
                             <span className="px-1.5 py-0.5 rounded-md bg-amber-200 text-amber-950 text-[10px] font-black uppercase">
                               🛡️ Admin
