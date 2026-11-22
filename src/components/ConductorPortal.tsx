@@ -8,10 +8,12 @@ import {
   ExternalLink,
   Home,
   Link2,
+  Map,
   MapPin,
   Navigation,
   Share2,
   ShieldAlert,
+  Users,
 } from 'lucide-react';
 import {
   Block,
@@ -22,9 +24,17 @@ import {
   Territory,
 } from '../types/territory';
 import {
+  copyTextToClipboard,
   getPublisherGroupLink,
+  getPublisherTerritoryLink,
   triggerBrowserNotification,
 } from '../services/notificationHelper';
+import {
+  getSlotConductors,
+  getTerritoryAssignees,
+  isSlotAssignedTo,
+  isTerritoryAssignedTo,
+} from '../services/storageAndSync';
 
 interface ConductorPortalProps {
   conductor: ConductorUser;
@@ -35,6 +45,7 @@ interface ConductorPortalProps {
   pushNotifications: PushNotificationItem[];
   onOpenSlotMap: (slot: ScheduleSlot) => void;
   onOpenTerritoryMap: (territoryId: string) => void;
+  onOpenGeneralMap: () => void;
   onCompleteWholeTerritory: (
     territoryId: string,
     conductorName: string
@@ -89,16 +100,15 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
   pushNotifications,
   onOpenSlotMap,
   onOpenTerritoryMap,
+  onOpenGeneralMap,
   onCompleteWholeTerritory,
   onMarkNotificationRead,
 }) => {
-  const [copiedSlotId, setCopiedSlotId] = useState<string | null>(null);
+  const [copiedLinkKey, setCopiedLinkKey] = useState<string | null>(null);
 
   // Salidas del programa asignadas a este conductor (ordenadas por fecha y hora)
   const myAssignedSlots = [...schedule]
-    .filter(
-      (s) => s.conductorId === conductor.id || s.conductorName === conductor.name
-    )
+    .filter((s) => isSlotAssignedTo(s, conductor))
     .sort((a, b) =>
       `${a.date || ''} ${a.time || ''}`.localeCompare(
         `${b.date || ''} ${b.time || ''}`
@@ -114,8 +124,7 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
   const standalonePersonalTerritories = territories.filter(
     (t) =>
       !slotCoveredTerritoryIds.has(t.id) &&
-      (t.assignedToId === conductor.id ||
-        (t.assignedToName && t.assignedToName === conductor.name))
+      isTerritoryAssignedTo(t, conductor)
   );
 
   type UnifiedAssignment =
@@ -164,40 +173,55 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
     }
   }, [myUnreadNotifications.length]);
 
-  const handleCopyPublisherLink = (slotId: string) => {
-    const link = getPublisherGroupLink(slotId);
-    navigator.clipboard.writeText(link);
-    setCopiedSlotId(slotId);
-    setTimeout(() => setCopiedSlotId(null), 3000);
+  const handleCopyPublisherLink = async (key: string, link: string) => {
+    await copyTextToClipboard(link);
+    setCopiedLinkKey(key);
+    setTimeout(() => setCopiedLinkKey(null), 3000);
   };
 
-  const handleSharePublisherLinkNative = async (slot: ScheduleSlot) => {
-    const link = getPublisherGroupLink(slot.id);
+  const handleSharePublisherLinkNative = async (params: {
+    key: string;
+    title: string;
+    text: string;
+    url: string;
+  }) => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Grupo de Predicación — ${slot.dayName}`,
-          text: `Link para anotar casas "No en casa" hoy (${slot.dayName} ${slot.time} hs):`,
-          url: link,
+          title: params.title,
+          text: params.text,
+          url: params.url,
         });
         return;
       } catch {
         // Fallback a copiar
       }
     }
-    handleCopyPublisherLink(slot.id);
+    await handleCopyPublisherLink(params.key, params.url);
   };
 
   return (
     <div className="max-w-4xl mx-auto px-3 sm:px-6 py-5 space-y-6 pb-24">
       {/* Encabezado simplificado del Conductor */}
-      <div className="bg-gradient-to-br from-blue-950 via-blue-900 to-indigo-950 rounded-3xl p-5 sm:p-6 text-white shadow-lg">
-        <h1 className="text-2xl sm:text-3xl font-black">
-          Hola, {conductor.name}
-        </h1>
-        <p className="text-blue-100 text-sm mt-1">
-          Tus territorios y salidas asignadas.
-        </p>
+      <div className="bg-gradient-to-br from-blue-950 via-blue-900 to-indigo-950 rounded-3xl p-5 sm:p-6 text-white shadow-lg flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black">
+            Hola, {conductor.name}
+          </h1>
+          <p className="text-blue-100 text-sm mt-1">
+            Tus territorios y salidas asignadas.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onOpenGeneralMap}
+          className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/25 font-extrabold text-xs sm:text-sm inline-flex items-center gap-1.5 cursor-pointer transition shadow-xs shrink-0"
+          title="Ver el mapa completo de todos los territorios de la congregación"
+        >
+          <Map className="w-4 h-4 text-amber-300" />
+          <span>Mapa General</span>
+        </button>
       </div>
 
       {/* Bandeja de Notificaciones Push recibidas del Administrador */}
@@ -280,6 +304,31 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
               item.itemTerritories.length > 0 &&
               item.itemTerritories.every((t) => t.status === 'completado');
 
+            // Personas adicionales que comparten esta salida o territorio
+            const otherSharedNames = Array.from(
+              new Set([
+                ...(slot ? getSlotConductors(slot).map((c) => c.name) : []),
+                ...item.itemTerritories.flatMap((t) =>
+                  getTerritoryAssignees(t).map((a) => a.name)
+                ),
+              ])
+            ).filter((name) => Boolean(name) && name !== conductor.name);
+
+            const publisherLinkUrl =
+              isSlot && slot
+                ? getPublisherGroupLink(slot.id)
+                : personalTerr
+                ? getPublisherTerritoryLink(personalTerr.id)
+                : '';
+            const publisherShareTitle =
+              isSlot && slot
+                ? `Grupo de Predicación — ${slot.dayName}`
+                : `Territorio Personal — ${territoryTitle}`;
+            const publisherShareText =
+              isSlot && slot
+                ? `Link para anotar casas "No en casa" hoy (${slot.dayName} ${slot.time} hs):`
+                : `Link para anotar casas "No en casa" en ${territoryTitle}:`;
+
             return (
               <div
                 key={item.key}
@@ -322,6 +371,13 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                     >
                       {isAllCompleted ? '✓ Completado' : 'En curso'}
                     </span>
+
+                    {otherSharedNames.length > 0 && (
+                      <span className="inline-flex items-center gap-1 border border-indigo-300 bg-indigo-50 text-indigo-900 font-bold px-2.5 py-1 rounded-xl text-xs">
+                        <Users className="w-3.5 h-3.5 shrink-0 text-indigo-700" />
+                        Compartido con: {otherSharedNames.join(', ')}
+                      </span>
+                    )}
                   </div>
 
                   <div className="font-black text-base sm:text-lg text-slate-900">
@@ -401,7 +457,7 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                     </div>
                   )}
 
-                  {isSlot && slot && (
+                  {publisherLinkUrl && (
                     <div className="bg-amber-50/90 border border-amber-300 rounded-2xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
                       <div className="text-xs font-black uppercase text-amber-900 flex items-center gap-1.5">
                         <Link2 className="w-4 h-4" />
@@ -410,15 +466,24 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
 
                       <div className="flex items-center gap-2 shrink-0">
                         <button
-                          onClick={() => handleCopyPublisherLink(slot.id)}
+                          onClick={() =>
+                            handleCopyPublisherLink(item.key, publisherLinkUrl)
+                          }
                           className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100 text-amber-950 border border-amber-400 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
                         >
                           <Copy className="w-3.5 h-3.5" />
-                          {copiedSlotId === slot.id ? '¡Copiado!' : 'Copiar'}
+                          {copiedLinkKey === item.key ? '¡Copiado!' : 'Copiar'}
                         </button>
 
                         <button
-                          onClick={() => handleSharePublisherLinkNative(slot)}
+                          onClick={() =>
+                            handleSharePublisherLinkNative({
+                              key: item.key,
+                              title: publisherShareTitle,
+                              text: publisherShareText,
+                              url: publisherLinkUrl,
+                            })
+                          }
                           className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs flex items-center gap-1.5 cursor-pointer"
                         >
                           <Share2 className="w-3.5 h-3.5" />

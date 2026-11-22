@@ -11,6 +11,7 @@ import {
   S13Record,
   ScheduleSlot,
   Territory,
+  TerritoryAssignee,
 } from '../types/territory';
 import { isPointInPolygon } from './kmlImporter';
 
@@ -405,6 +406,149 @@ export function getDemoDatabase(): AppDatabase {
 }
 
 /**
+ * Devuelve la lista ordenada de personas asignadas a un territorio (índice 0 = primer asignado para S-13).
+ */
+export function getTerritoryAssignees(t: Territory): TerritoryAssignee[] {
+  if (Array.isArray(t.assignees) && t.assignees.length > 0) {
+    return t.assignees.filter((a) => Boolean(a && (a.id || a.name)));
+  }
+  if (t.assignedToId || t.assignedToName) {
+    return [
+      {
+        id: t.assignedToId || '',
+        name: t.assignedToName || '',
+        assignedAt: t.assignedAt || t.startedAt || '',
+      },
+    ];
+  }
+  return [];
+}
+
+/**
+ * Comprueba si un territorio está asignado a un conductor dado (entre cualquiera de sus asignados).
+ */
+export function isTerritoryAssignedTo(
+  t: Territory,
+  conductor: { id: string; name: string }
+): boolean {
+  const list = getTerritoryAssignees(t);
+  return list.some(
+    (a) =>
+      (Boolean(a.id) && a.id === conductor.id) ||
+      (Boolean(a.name) && a.name === conductor.name)
+  );
+}
+
+/**
+ * Devuelve el nombre del primer asignado del territorio en el ciclo actual (usado para el registro S-13).
+ */
+export function getFirstAssigneeName(t: Territory, fallback?: string): string {
+  const first = getTerritoryAssignees(t)[0];
+  return (
+    first?.name ||
+    t.assignedToName ||
+    fallback ||
+    t.lastConductor ||
+    'Conductor asignado'
+  );
+}
+
+/**
+ * Devuelve todos los conductores asignados a una salida del programa semanal.
+ */
+export function getSlotConductors(
+  slot: ScheduleSlot
+): Array<{ id: string; name: string }> {
+  if (Array.isArray(slot.conductorIds) && slot.conductorIds.length > 0) {
+    return slot.conductorIds
+      .map((id, idx) => ({
+        id,
+        name:
+          slot.conductorNames?.[idx] ||
+          (id === slot.conductorId ? slot.conductorName : '') ||
+          '',
+      }))
+      .filter((c) => Boolean(c.id || c.name));
+  }
+  if (slot.conductorId || slot.conductorName) {
+    return [{ id: slot.conductorId || '', name: slot.conductorName || '' }];
+  }
+  return [];
+}
+
+/**
+ * Comprueba si una salida del programa semanal pertenece al conductor indicado.
+ */
+export function isSlotAssignedTo(
+  slot: ScheduleSlot,
+  conductor: { id: string; name: string }
+): boolean {
+  return getSlotConductors(slot).some(
+    (c) =>
+      (Boolean(c.id) && c.id === conductor.id) ||
+      (Boolean(c.name) && c.name === conductor.name)
+  );
+}
+
+/**
+ * Etiqueta legible con todos los conductores de una salida separados por " / ".
+ */
+export function getSlotConductorLabel(slot: ScheduleSlot): string {
+  const names = getSlotConductors(slot)
+    .map((c) => c.name.trim())
+    .filter(Boolean);
+  return names.length > 0 ? names.join(' / ') : slot.conductorName || 'Por asignar';
+}
+
+/**
+ * Sincroniza la lista de asignados en un territorio preservando el orden original
+ * para mantener al primer asignado como índice 0 (para el S-13).
+ */
+export function syncTerritoryAssigneeFields(
+  t: Territory,
+  assignees: TerritoryAssignee[],
+  assignmentNotes?: string
+): Territory {
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  const deduped: TerritoryAssignee[] = [];
+  for (const a of assignees) {
+    if (!a || (!a.id && !a.name)) continue;
+    if (a.id && seenIds.has(a.id)) continue;
+    if (!a.id && a.name && seenNames.has(a.name)) continue;
+    if (a.id) seenIds.add(a.id);
+    if (a.name) seenNames.add(a.name);
+    deduped.push(a);
+  }
+
+  const first = deduped[0];
+  const cleanNotes =
+    assignmentNotes !== undefined ? assignmentNotes.trim() || undefined : t.assignmentNotes;
+
+  if (!first) {
+    return {
+      ...t,
+      assignees: [],
+      assignedToId: undefined,
+      assignedToName: undefined,
+      assignedAt: undefined,
+      assignmentNotes: undefined,
+    };
+  }
+
+  return {
+    ...t,
+    assignees: deduped,
+    assignedToId: first.id || undefined,
+    assignedToName: first.name || undefined,
+    assignedAt: first.assignedAt || t.assignedAt,
+    assignmentNotes: cleanNotes,
+    lastConductor: first.name || t.lastConductor,
+    startedAt: t.startedAt || first.assignedAt || undefined,
+  };
+}
+
+/**
  * Asegura que una base de datos deserializada tenga todas sus colecciones como arrays válidos
  */
 export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
@@ -418,6 +562,36 @@ export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
     isAdmin: hasAnyAdmin ? Boolean(c.isAdmin) : idx === 0,
   }));
 
+  const normalizedTerritories: Territory[] = Array.isArray(parsed.territories)
+    ? parsed.territories.map((t) => {
+        const assignees = getTerritoryAssignees(t);
+        if (assignees.length > 0) {
+          return {
+            ...t,
+            assignees,
+            assignedToId: assignees[0].id || t.assignedToId,
+            assignedToName: assignees[0].name || t.assignedToName,
+            assignedAt: assignees[0].assignedAt || t.assignedAt,
+          };
+        }
+        return { ...t, assignees: [] };
+      })
+    : [];
+
+  const normalizedSchedule: ScheduleSlot[] = Array.isArray(parsed.schedule)
+    ? parsed.schedule.map((s) => {
+        const conds = getSlotConductors(s);
+        return {
+          ...s,
+          conductorId: conds[0]?.id || s?.conductorId || '',
+          conductorName: conds[0]?.name || s?.conductorName || '',
+          conductorIds: conds.map((c) => c.id),
+          conductorNames: conds.map((c) => c.name),
+          territoryIds: Array.isArray(s?.territoryIds) ? s.territoryIds : [],
+        };
+      })
+    : [];
+
   return {
     ...blank,
     ...parsed,
@@ -425,15 +599,10 @@ export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
     congregationName: parsed.congregationName || '',
     adminPin: parsed.adminPin || '',
     conductors: normalizedConductors,
-    territories: Array.isArray(parsed.territories) ? parsed.territories : [],
+    territories: normalizedTerritories,
     blocks: Array.isArray(parsed.blocks) ? parsed.blocks : [],
     housePoints: Array.isArray(parsed.housePoints) ? parsed.housePoints : [],
-    schedule: Array.isArray(parsed.schedule)
-      ? parsed.schedule.map((s) => ({
-          ...s,
-          territoryIds: Array.isArray(s?.territoryIds) ? s.territoryIds : [],
-        }))
-      : [],
+    schedule: normalizedSchedule,
     customLocations: Array.isArray(parsed.customLocations)
       ? parsed.customLocations
       : getDefaultCustomLocations(),
@@ -628,6 +797,11 @@ export function markWholeTerritoryCompleted(
     (p) => p.status === 'atendido'
   ).length;
 
+  const firstAssignee = getFirstAssigneeName(territory, conductorName);
+  const firstEntry = getTerritoryAssignees(territory)[0];
+  const startedAt =
+    firstEntry?.assignedAt || territory.assignedAt || territory.startedAt || todayStr;
+
   const updatedTerritories = db.territories.map((t) =>
     t.id === territoryId
       ? {
@@ -635,7 +809,7 @@ export function markWholeTerritoryCompleted(
           status: 'completado' as const,
           completedAt: todayStr,
           lastCompletedAt: todayStr,
-          lastConductor: conductorName || t.lastConductor,
+          lastConductor: firstAssignee || t.lastConductor,
         }
       : t
   );
@@ -648,7 +822,7 @@ export function markWholeTerritoryCompleted(
           lastWorkedAt: todayStr,
           completedAt: todayStr,
           lastCompletedAt: todayStr,
-          lastConductor: conductorName || b.lastConductor,
+          lastConductor: conductorName || firstAssignee || b.lastConductor,
         }
       : b
   );
@@ -657,12 +831,12 @@ export function markWholeTerritoryCompleted(
     id: `s13-${Date.now()}`,
     territoryId: territory.id,
     territoryName: territory.name,
-    assignedTo: conductorName || territory.lastConductor || 'Conductor asignado',
-    startedAt: territory.startedAt || todayStr,
+    assignedTo: firstAssignee,
+    startedAt,
     completedAt: todayStr,
     totalBlocks: terrBlocks.length,
     totalNotAtHomeResolved: resolvedCount,
-    notes: 'Marcado como completado por el conductor',
+    notes: 'Marcado como completado',
   };
 
   return saveDatabase({
@@ -680,18 +854,21 @@ export function resetTerritoryForNewCycle(
 ): AppDatabase {
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  const updatedTerritories = db.territories.map((t) =>
-    t.id === territoryId
-      ? {
-          ...t,
-          status: 'en_curso' as const,
-          startedAt: todayStr,
-          completedAt: undefined,
-          lastCompletedAt: t.completedAt || t.lastCompletedAt,
-          lastConductor: newConductor || t.lastConductor,
-        }
-      : t
-  );
+  const updatedTerritories = db.territories.map((t) => {
+    if (t.id !== territoryId) return t;
+    const hasAssignees = getTerritoryAssignees(t).length > 0;
+    return {
+      ...t,
+      status: 'en_curso' as const,
+      startedAt: hasAssignees ? todayStr : undefined,
+      completedAt: undefined,
+      lastCompletedAt: t.completedAt || t.lastCompletedAt,
+      lastConductor:
+        newConductor && newConductor !== 'Administrador'
+          ? newConductor
+          : t.lastConductor,
+    };
+  });
 
   const updatedBlocks = db.blocks.map((b) =>
     b.territoryId === territoryId
@@ -730,9 +907,9 @@ export function resetTerritoryForNewCycle(
 }
 
 /**
- * Marca un territorio como completado en el historial S-13, lo reinicia desde cero
- * para el próximo ciclo (conservando direcciones NO VISITAR) y retira la asignación
- * y las salidas asociadas para que el conductor deje de tener acceso a él.
+ * Marca un territorio como completado en el historial S-13 y retira todas las
+ * asignaciones y salidas asociadas para que los conductores dejen de verlo.
+ * NO reinicia las manzanas ni las casas: eso lo hace manualmente un Administrador.
  */
 export function completeAndReturnTerritory(
   db: AppDatabase,
@@ -749,16 +926,17 @@ export function completeAndReturnTerritory(
     (p) => p.status === 'atendido'
   ).length;
 
+  const firstAssignee = getFirstAssigneeName(territory, conductorName);
+  const firstEntry = getTerritoryAssignees(territory)[0];
+  const startedAt =
+    firstEntry?.assignedAt || territory.assignedAt || territory.startedAt || todayStr;
+
   const newS13Record: S13Record = {
     id: `s13-${Date.now()}`,
     territoryId: territory.id,
     territoryName: territory.name,
-    assignedTo:
-      conductorName ||
-      territory.assignedToName ||
-      territory.lastConductor ||
-      'Conductor asignado',
-    startedAt: territory.assignedAt || territory.startedAt || todayStr,
+    assignedTo: firstAssignee,
+    startedAt,
     completedAt: todayStr,
     totalBlocks: terrBlocks.length,
     totalNotAtHomeResolved: resolvedCount,
@@ -769,11 +947,11 @@ export function completeAndReturnTerritory(
     t.id === territoryId
       ? {
           ...t,
-          status: 'en_curso' as const,
-          startedAt: undefined,
-          completedAt: undefined,
+          status: 'completado' as const,
+          completedAt: todayStr,
           lastCompletedAt: todayStr,
-          lastConductor: conductorName || t.assignedToName || t.lastConductor,
+          lastConductor: firstAssignee,
+          assignees: [],
           assignedToId: undefined,
           assignedToName: undefined,
           assignedAt: undefined,
@@ -781,35 +959,6 @@ export function completeAndReturnTerritory(
         }
       : t
   );
-
-  const updatedBlocks = db.blocks.map((b) =>
-    b.territoryId === territoryId
-      ? {
-          ...b,
-          status: 'pendiente' as BlockStatus,
-          lastWorkedAt: undefined,
-          completedAt: undefined,
-          lastCompletedAt: todayStr,
-          lastConductor: conductorName || b.lastConductor,
-        }
-      : b
-  );
-
-  const updatedPoints = db.housePoints
-    .filter((p) => {
-      if (p.territoryId !== territoryId) return true;
-      return p.category === 'no_visitar' || p.category === 'casa_rural';
-    })
-    .map((p) => {
-      if (p.territoryId === territoryId && p.category === 'casa_rural') {
-        return {
-          ...p,
-          status: 'pendiente' as HousePointStatus,
-          attempts: [],
-        };
-      }
-      return p;
-    });
 
   const updatedSchedule = (db.schedule || [])
     .map((s) => ({
@@ -821,8 +970,6 @@ export function completeAndReturnTerritory(
   return saveDatabase({
     ...db,
     territories: updatedTerritories,
-    blocks: updatedBlocks,
-    housePoints: updatedPoints,
     schedule: updatedSchedule,
     s13History: [newS13Record, ...db.s13History],
   });

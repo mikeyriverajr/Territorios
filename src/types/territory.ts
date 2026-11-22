@@ -65,6 +65,12 @@ export interface HousePoint {
   attempts: HouseAttempt[];
 }
 
+export interface TerritoryAssignee {
+  id: string;
+  name: string;
+  assignedAt: string;
+}
+
 export interface Territory {
   id: string;
   number: number;         // Ej. 1, 2, 3
@@ -77,9 +83,10 @@ export interface Territory {
   completedAt?: string;   // Fecha de cierre (para S-13)
   lastCompletedAt?: string; // Última fecha en que se completó el territorio
   lastConductor?: string;
-  assignedToId?: string;    // ID del usuario/conductor asignado directamente (territorio personal)
-  assignedToName?: string;  // Nombre del usuario asignado directamente
-  assignedAt?: string;      // Fecha de asignación directa
+  assignees?: TerritoryAssignee[]; // Lista ordenada de personas asignadas (índice 0 = primer asignado para S-13)
+  assignedToId?: string;    // ID del primer usuario asignado (compatibilidad)
+  assignedToName?: string;  // Nombre del primer usuario asignado (compatibilidad)
+  assignedAt?: string;      // Fecha de asignación del primer usuario
   assignmentNotes?: string; // Notas opcionales de la asignación
 }
 
@@ -89,8 +96,10 @@ export interface ScheduleSlot {
   dayOfWeek?: string;     // Ej. "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"
   date: string;           // YYYY-MM-DD
   time: string;           // Ej. "09:30"
-  conductorId: string;    // ID del conductor asignado
-  conductorName: string;  // Ej. "Hno. Carlos Gómez"
+  conductorId: string;    // ID del conductor principal asignado
+  conductorName: string;  // Nombre del conductor principal
+  conductorIds?: string[];    // IDs de todos los conductores asignados a esta salida
+  conductorNames?: string[];  // Nombres de todos los conductores asignados a esta salida
   meetingPointName: string; // Ej. "Plaza Primera Junta"
   meetingPointUrl: string;  // Link de Google Maps del punto de encuentro
   territoryIds: string[]; // Territorios asignados para esta salida

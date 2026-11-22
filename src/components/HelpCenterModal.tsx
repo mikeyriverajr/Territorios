@@ -4,7 +4,6 @@ import {
   BookOpen,
   CheckCircle2,
   Copy,
-  FileText,
   HelpCircle,
   Lightbulb,
   Printer,
@@ -17,6 +16,7 @@ import {
   HELP_ARTICLES,
   HELP_CATEGORIES,
   HelpCategoryId,
+  normalizeHelpCategoryId,
   PUBLISHER_WHATSAPP_GUIDE_TEXT,
 } from '../services/helpContent';
 import {
@@ -39,13 +39,14 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
   inline = false,
   congregationName,
 }) => {
-  const [activeCategory, setActiveCategory] =
-    useState<HelpCategoryId>(initialCategory);
+  const [activeCategory, setActiveCategory] = useState<HelpCategoryId>(() =>
+    normalizeHelpCategoryId(initialCategory)
+  );
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copyToast, setCopyToast] = useState<string | null>(null);
 
   useEffect(() => {
-    setActiveCategory(initialCategory);
+    setActiveCategory(normalizeHelpCategoryId(initialCategory));
   }, [initialCategory, isOpen]);
 
   const normalizedQuery = useMemo(
@@ -112,12 +113,12 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
           </div>
           <div>
             <h2 className="font-black text-base sm:text-xl leading-tight">
-              Centro de Ayuda y Manual de Usuario
+              Guía de Ayuda Fácil
             </h2>
-            <p className="text-xs text-blue-200">
+            <p className="text-xs sm:text-sm text-blue-200">
               {congregationName
-                ? `${congregationName} — Guías paso a paso por rol`
-                : 'Guías completas paso a paso para Publicadores, Conductores y Administradores'}
+                ? `${congregationName} — Instrucciones sencillas paso a paso`
+                : 'Instrucciones sencillas para Publicadores, Conductores y Encargados'}
             </p>
           </div>
         </div>
@@ -162,8 +163,8 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar en la ayuda (ej. no visitar, kml, s-13, gps, pin)..."
-              aria-label="Buscar en los manuales de ayuda"
+              placeholder="Escribe lo que buscas (ej. GPS, mapa, no visitar, PIN)..."
+              aria-label="Buscar en la ayuda"
               className="w-full pl-10 pr-9 py-2.5 rounded-xl border-2 border-slate-300 bg-white focus:border-blue-600 focus:outline-none text-sm font-semibold text-slate-900"
             />
             {searchQuery && (
@@ -275,15 +276,15 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
             activeCategory === 'conductor') && (
             <div className="bg-white rounded-2xl border-2 border-slate-200 p-4 space-y-2.5">
               <div className="text-xs font-black uppercase tracking-wider text-slate-600">
-                Leyenda Visual del Mapa
+                Colores del Mapa (Guía rápida)
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs sm:text-sm">
                 <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
                   <span className="px-2 py-0.5 rounded-full bg-blue-700 text-white font-black text-[11px] shrink-0">
                     1A
                   </span>
                   <span className="font-semibold text-slate-700">
-                    Manzana pendiente (azul) / en progreso (ámbar)
+                    Azul: falta predicar / Naranja: empezada
                   </span>
                 </div>
                 <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
@@ -291,7 +292,7 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
                     1A ✓
                   </span>
                   <span className="font-semibold text-slate-700">
-                    Manzana completada en este ciclo
+                    Verde: manzana ya terminada
                   </span>
                 </div>
                 <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
@@ -299,7 +300,7 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
                     1
                   </span>
                   <span className="font-semibold text-slate-700">
-                    Casa "No en casa" pendiente (ej. 1A-1)
+                    Casa donde no atendieron ("No en casa")
                   </span>
                 </div>
                 <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-red-50 border border-red-200">
@@ -307,7 +308,7 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
                     !
                   </span>
                   <span className="font-bold text-red-900">
-                    NO VISITAR (Permanente, no tocar)
+                    Rojo "!": NO VISITAR (no tocar)
                   </span>
                 </div>
               </div>
@@ -317,19 +318,19 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
         {/* Lista de artículos de ayuda */}
         {visibleArticles.length === 0 ? (
           <div className="bg-white rounded-2xl border-2 border-dashed border-slate-300 p-8 text-center space-y-2">
-            <div className="font-black text-slate-800 text-sm">
-              No se encontraron guías para "{searchQuery}"
+            <div className="font-black text-slate-800 text-base">
+              No encontramos nada para "{searchQuery}"
             </div>
-            <p className="text-xs text-slate-500">
-              Intente buscar palabras más generales como "mapa", "whatsapp",
-              "kml", "pin" o "gps".
+            <p className="text-sm text-slate-500">
+              Prueba con palabras simples como "mapa", "whatsapp", "clave" o
+              "gps".
             </p>
             <button
               type="button"
               onClick={() => setSearchQuery('')}
               className="px-3.5 py-1.5 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-900 font-extrabold text-xs cursor-pointer"
             >
-              Ver todas las guías
+              Ver toda la ayuda
             </button>
           </div>
         ) : (
@@ -348,7 +349,7 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
                   </span>
                 </div>
 
-                <p className="text-xs sm:text-sm text-slate-700 leading-relaxed font-medium">
+                <p className="text-sm text-slate-700 leading-relaxed font-medium">
                   {article.summary}
                 </p>
 
@@ -357,7 +358,7 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
                     {article.steps.map((stepText, idx) => (
                       <li
                         key={idx}
-                        className="flex items-start gap-2.5 text-xs sm:text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl p-2.5"
+                        className="flex items-start gap-2.5 text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl p-3"
                       >
                         <span className="w-5 h-5 rounded-full bg-blue-700 text-white font-black text-[11px] flex items-center justify-center shrink-0 mt-0.5">
                           {idx + 1}
@@ -373,7 +374,7 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
                     {article.tips.map((tip, idx) => (
                       <div
                         key={idx}
-                        className="flex items-start gap-2 text-xs text-amber-950"
+                        className="flex items-start gap-2 text-xs sm:text-sm text-amber-950"
                       >
                         <Lightbulb className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                         <span>{tip}</span>
@@ -383,7 +384,7 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
                 )}
 
                 {article.warning && (
-                  <div className="bg-red-50 border border-red-300 rounded-xl p-3 flex items-start gap-2 text-xs text-red-950 font-semibold">
+                  <div className="bg-red-50 border border-red-300 rounded-xl p-3 flex items-start gap-2 text-xs sm:text-sm text-red-950 font-semibold">
                     <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                     <span>{article.warning}</span>
                   </div>
@@ -392,23 +393,6 @@ export const HelpCenterModal: React.FC<HelpCenterModalProps> = ({
             ))}
           </div>
         )}
-
-        {/* Nota de referencia a los archivos Markdown completos */}
-        <div className="bg-slate-100 border border-slate-300 rounded-2xl p-3.5 flex items-start gap-2.5 text-xs text-slate-700">
-          <FileText className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-          <div>
-            <strong>Documentación extendida del proyecto:</strong> Los manuales
-            completos en formato Markdown están disponibles en{' '}
-            <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
-              README.md
-            </code>{' '}
-            y en la carpeta{' '}
-            <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-slate-200">
-              docs/
-            </code>{' '}
-            del repositorio (guías <code>01</code> a <code>06</code>).
-          </div>
-        </div>
       </div>
     </div>
   );

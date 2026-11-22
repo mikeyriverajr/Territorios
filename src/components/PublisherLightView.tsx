@@ -21,13 +21,18 @@ import {
   Territory,
 } from '../types/territory';
 import { getPolygonCentroid, isPointInPolygon } from '../services/kmlImporter';
-import { findBlockForCoordinates } from '../services/storageAndSync';
+import {
+  findBlockForCoordinates,
+  getSlotConductorLabel,
+  getTerritoryAssignees,
+} from '../services/storageAndSync';
 import { getGoogleMapsNavigationUrl } from '../services/notificationHelper';
 import { HelpCenterModal } from './HelpCenterModal';
 import { TerriMapLogo } from './TerriMapLogo';
 
 interface PublisherLightViewProps {
-  slot: ScheduleSlot;
+  slot?: ScheduleSlot | null;
+  personalTerritoryId?: string | null;
   territories: Territory[];
   blocks: Block[];
   housePoints: HousePoint[];
@@ -46,6 +51,7 @@ interface PublisherLightViewProps {
 
 export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   slot,
+  personalTerritoryId,
   territories,
   blocks,
   housePoints,
@@ -53,10 +59,16 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   onMarkHouseVisited,
   onExitPreview,
 }) => {
-  const assignedTerritories = useMemo(
-    () => territories.filter((t) => slot.territoryIds.includes(t.id)),
-    [territories, slot.territoryIds]
-  );
+  const assignedTerritories = useMemo(() => {
+    if (slot) {
+      return territories.filter((t) => slot.territoryIds.includes(t.id));
+    }
+    if (personalTerritoryId) {
+      const found = territories.find((t) => t.id === personalTerritoryId);
+      return found ? [found] : [];
+    }
+    return [];
+  }, [territories, slot, personalTerritoryId]);
 
   const [activeTerritoryId, setActiveTerritoryId] = useState<string>(
     assignedTerritories[0]?.id || territories[0]?.id || 'terr-1'
@@ -497,7 +509,17 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
           <TerriMapLogo className="w-8 h-8 shrink-0" />
           <div className="min-w-0">
             <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 truncate">
-              {slot.dayName} ({slot.time} hs) • Conductor: {slot.conductorName}
+              {slot
+                ? `${slot.dayName} (${slot.time} hs) • Conductor: ${getSlotConductorLabel(slot)}`
+                : (() => {
+                    const assignees = activeTerritory
+                      ? getTerritoryAssignees(activeTerritory)
+                      : [];
+                    const names = assignees.map((a) => a.name).filter(Boolean);
+                    return names.length > 0
+                      ? `Territorio Personal • ${names.join(' / ')}`
+                      : 'Territorio Personal • Mapa para Publicadores';
+                  })()}
             </div>
             <div className="font-black text-sm sm:text-base truncate">
               {activeTerritory?.name} — Toque la casa en el mapa para anotar "No

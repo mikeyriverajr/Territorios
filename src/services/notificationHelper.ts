@@ -4,6 +4,7 @@ import {
   ScheduleSlot,
   Territory,
 } from '../types/territory';
+import { getSlotConductorLabel } from './storageAndSync';
 
 /**
  * Genera el enlace directo de navegación en Google Maps hacia una coordenada GPS exacta
@@ -18,6 +19,15 @@ export function getGoogleMapsNavigationUrl(lat: number, lng: number): string {
 export function getPublisherGroupLink(slotId: string): string {
   return `${window.location.origin}${window.location.pathname}?grupo=${encodeURIComponent(
     slotId
+  )}`;
+}
+
+/**
+ * Genera el enlace especial de territorio personal para compartir con publicadores sin login
+ */
+export function getPublisherTerritoryLink(territoryId: string): string {
+  return `${window.location.origin}${window.location.pathname}?territorio=${encodeURIComponent(
+    territoryId
   )}`;
 }
 
@@ -38,13 +48,25 @@ export function buildPublisherLinkWhatsAppMessage(
 }
 
 /**
+ * Construye el mensaje de WhatsApp con el link de un territorio personal para publicadores
+ */
+export function buildPublisherTerritoryWhatsAppMessage(
+  territory: Territory,
+  conductorName?: string
+): string {
+  const link = getPublisherTerritoryLink(territory.id);
+  const byLabel = conductorName ? ` (Encargado: ${conductorName})` : '';
+  return `🗺️ Link para anotar casas "No en casa" en ${territory.name}${byLabel}:\n${link}`;
+}
+
+/**
  * Formatea una salida individual exactamente con la plantilla requerida para WhatsApp
  */
 export function formatScheduleSlotMessage(slot: ScheduleSlot): string {
   if (!slot) return '';
   const dayLabel = slot.dayOfWeek || slot.dayName || 'Día por definir';
   const time = slot.time || '00:00';
-  const conductor = slot.conductorName || 'Por asignar';
+  const conductor = getSlotConductorLabel(slot);
   const location = slot.meetingPointName || 'Por asignar';
   const url = slot.meetingPointUrl || '';
   return [
@@ -112,7 +134,8 @@ export function renderPushTemplate(
   template: PushNotificationTemplate,
   slot: ScheduleSlot,
   territories: Territory[],
-  housePoints: HousePoint[]
+  housePoints: HousePoint[],
+  conductorOverrideName?: string
 ): { title: string; body: string } {
   const assignedTerritories = territories.filter((t) =>
     slot.territoryIds.includes(t.id)
@@ -130,9 +153,11 @@ export function renderPushTemplate(
     (p) => p.status === 'no_en_casa'
   ).length;
 
+  const conductorLabel = conductorOverrideName || getSlotConductorLabel(slot);
+
   const replaceVars = (text: string) =>
     text
-      .replace(/\{conductor\}/g, slot.conductorName)
+      .replace(/\{conductor\}/g, conductorLabel)
       .replace(/\{dia\}/g, slot.dayName)
       .replace(/\{hora\}/g, slot.time)
       .replace(/\{punto_encuentro\}/g, slot.meetingPointName)

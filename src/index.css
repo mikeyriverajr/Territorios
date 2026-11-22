@@ -3,7 +3,12 @@
 /* Ajustes para etiquetas de Leaflet sin bordes blancos por defecto */
 .custom-block-label,
 .custom-house-pin,
-.custom-gps-dot {
+.custom-gps-dot,
+.custom-readonly-terr-label,
+.custom-google-maps-gps,
+.custom-overview-label,
+.custom-editor-vertex,
+.custom-editor-midpoint {
   background: transparent !important;
   border: none !important;
 }

@@ -27,12 +27,18 @@ import {
   Territory,
 } from '../types/territory';
 import { getPolygonCentroid } from '../services/kmlImporter';
-import { findBlockForCoordinates } from '../services/storageAndSync';
+import {
+  findBlockForCoordinates,
+  getSlotConductorLabel,
+  getTerritoryAssignees,
+} from '../services/storageAndSync';
 import {
   buildPublisherLinkWhatsAppMessage,
+  buildPublisherTerritoryWhatsAppMessage,
   copyTextToClipboard,
   getGoogleMapsNavigationUrl,
   getPublisherGroupLink,
+  getPublisherTerritoryLink,
   openWhatsAppShare,
 } from '../services/notificationHelper';
 
@@ -176,6 +182,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
   const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
   const [gpsStatusText, setGpsStatusText] = useState<string>('');
+  const [copiedPubLink, setCopiedPubLink] = useState<boolean>(false);
 
   const [newPointDraft, setNewPointDraft] = useState<{
     lat: number;
@@ -658,14 +665,16 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
 
   const handleConfirmReturnTerritory = () => {
     if (!activeTerritory) return;
+    const firstAssigneeName = getTerritoryAssignees(activeTerritory)[0]?.name;
     const conductorName =
-      activeSlot?.conductorName || activeTerritory.assignedToName;
+      firstAssigneeName ||
+      activeSlot?.conductorName ||
+      activeTerritory.assignedToName;
     setShowReturnConfirmModal(false);
     if (onCompleteAndReturnTerritory) {
       onCompleteAndReturnTerritory(activeTerritory.id, conductorName);
     } else {
       onCompleteWholeTerritory(activeTerritory.id, conductorName);
-      onResetTerritory(activeTerritory.id, conductorName);
       onBack();
     }
   };
@@ -681,14 +690,29 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     });
   };
 
-  const handleShareGroupLinkWhatsApp = () => {
-    if (!activeSlot) return;
-    const slotTerrNames = territories
-      .filter((t) => activeSlot.territoryIds.includes(t.id))
-      .map((t) => t.name);
-    const message = buildPublisherLinkWhatsAppMessage(activeSlot, slotTerrNames);
-    openWhatsAppShare(message);
-    void copyTextToClipboard(getPublisherGroupLink(activeSlot.id));
+  const handleSharePublisherLink = () => {
+    if (!activeTerritory) return;
+    if (activeSlot) {
+      const slotTerrNames = territories
+        .filter((t) => activeSlot.territoryIds.includes(t.id))
+        .map((t) => t.name);
+      const message = buildPublisherLinkWhatsAppMessage(activeSlot, slotTerrNames);
+      openWhatsAppShare(message);
+      void copyTextToClipboard(getPublisherGroupLink(activeSlot.id));
+    } else {
+      const assignees = getTerritoryAssignees(activeTerritory)
+        .map((a) => a.name)
+        .filter(Boolean)
+        .join(' / ');
+      const message = buildPublisherTerritoryWhatsAppMessage(
+        activeTerritory,
+        assignees || undefined
+      );
+      openWhatsAppShare(message);
+      void copyTextToClipboard(getPublisherTerritoryLink(activeTerritory.id));
+    }
+    setCopiedPubLink(true);
+    setTimeout(() => setCopiedPubLink(false), 3000);
   };
 
   if (!activeTerritory) {
@@ -728,10 +752,13 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
                 <h2 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
                   {activeTerritory.name}
                   {activeSlot
-                    ? ` — ${activeSlot.conductorName}`
-                    : activeTerritory.assignedToName
-                    ? ` — ${activeTerritory.assignedToName}`
-                    : ''}
+                    ? ` — ${getSlotConductorLabel(activeSlot)}`
+                    : (() => {
+                        const names = getTerritoryAssignees(activeTerritory)
+                          .map((a) => a.name)
+                          .filter(Boolean);
+                        return names.length > 0 ? ` — ${names.join(' / ')}` : '';
+                      })()}
                 </h2>
                 {(activeSlot?.date || activeTerritory.assignedAt) && (
                   <div className="text-xs font-bold text-slate-600 mt-0.5">
@@ -841,9 +868,10 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             </div>
 
             <p className="text-sm text-slate-700 leading-relaxed">
-              ¿Deseas devolver este territorio? Al confirmar, el territorio
-              empezará desde cero para la próxima vez y ya no tendrás acceso a
-              él en tus asignaciones.
+              ¿Deseas marcar este territorio como completado y devolverlo? Al
+              confirmar, quedará guardado en el historial S-13 y ya no aparecerá
+              en tus asignaciones ni en las salidas de quienes lo tenían. El
+              administrador decidirá cuándo reiniciarlo para la próxima vez.
             </p>
 
             <div className="flex gap-2.5 pt-1">
@@ -1100,17 +1128,15 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             )}
           </div>
 
-          {activeSlot && (
-            <button
-              type="button"
-              onClick={handleShareGroupLinkWhatsApp}
-              title="Compartir link para publicadores por WhatsApp"
-              className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-700 font-extrabold text-xs cursor-pointer shadow-2xs transition"
-            >
-              <Share2 className="w-3.5 h-3.5 shrink-0" />
-              <span>Link Publicadores</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleSharePublisherLink}
+            title="Copiar y compartir link para publicadores por WhatsApp"
+            className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-700 font-extrabold text-xs cursor-pointer shadow-2xs transition"
+          >
+            <Share2 className="w-3.5 h-3.5 shrink-0" />
+            <span>{copiedPubLink ? '¡Link copiado!' : 'Link Publicadores'}</span>
+          </button>
         </div>
 
         {(gpsStatusText || currentUserBlock) && (

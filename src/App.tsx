@@ -13,23 +13,29 @@ import {
   PushNotificationTemplate,
   ScheduleSlot,
   Territory,
+  TerritoryAssignee,
 } from './types/territory';
 import {
   appendSyncAction,
   completeAndReturnTerritory,
   fetchCloudDatabase,
   generateHouseShortCode,
+  getSlotConductors,
+  getTerritoryAssignees,
+  isTerritoryAssignedTo,
   loadDatabase,
   markWholeTerritoryCompleted,
   resetTerritoryForNewCycle,
   sanitizeDatabase,
   saveDatabase,
+  syncTerritoryAssigneeFields,
 } from './services/storageAndSync';
 import { StartupWizard } from './components/StartupWizard';
 import { LoginView } from './components/LoginView';
 import { ConductorPortal } from './components/ConductorPortal';
 import { PublisherLightView } from './components/PublisherLightView';
 import { FieldMapView } from './components/FieldMapView';
+import { GeneralMapView } from './components/GeneralMapView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { HelpCenterModal } from './components/HelpCenterModal';
 import { HelpCategoryId } from './services/helpContent';
@@ -110,7 +116,11 @@ export const App: React.FC = () => {
     'admin' | 'conductor' | 'publisher_link' | null
   >(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('grupo') || params.get('salida')) {
+    if (
+      params.get('grupo') ||
+      params.get('salida') ||
+      params.get('territorio')
+    ) {
       return 'publisher_link';
     }
     return null;
@@ -125,12 +135,20 @@ export const App: React.FC = () => {
     return params.get('grupo') || params.get('salida') || null;
   });
 
+  const [publisherTerritoryId, setPublisherTerritoryId] = useState<
+    string | null
+  >(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('territorio') || null;
+  });
+
   const [mapOpenForTerritoryId, setMapOpenForTerritoryId] = useState<
     string | null
   >(null);
   const [activeSlotForMap, setActiveSlotForMap] = useState<ScheduleSlot | null>(
     null
   );
+  const [isGeneralMapOpen, setIsGeneralMapOpen] = useState<boolean>(false);
 
   const [initialCloudCheckDone, setInitialCloudCheckDone] = useState<boolean>(
     () => Boolean(loadDatabase().isConfigured)
@@ -366,42 +384,21 @@ export const App: React.FC = () => {
     setDb(saveDatabase(nextDb));
   };
 
-  const handleAssignTerritory = (
+  const handleUpdateTerritoryAssignees = (
     territoryId: string,
-    conductorId: string,
+    assignees: TerritoryAssignee[],
     assignmentNotes?: string
   ) => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const assignedUser = conductorId
-      ? db.conductors.find((c) => c.id === conductorId)
-      : undefined;
-
-    const nextDb: AppDatabase = {
-      ...db,
-      territories: db.territories.map((t) => {
-        if (t.id !== territoryId) return t;
-        if (assignedUser) {
-          return {
-            ...t,
-            assignedToId: assignedUser.id,
-            assignedToName: assignedUser.name,
-            assignedAt: todayStr,
-            assignmentNotes: assignmentNotes?.trim() || undefined,
-            lastConductor: assignedUser.name,
-            startedAt: t.startedAt || todayStr,
-          };
-        }
-        return {
-          ...t,
-          assignedToId: undefined,
-          assignedToName: undefined,
-          assignedAt: undefined,
-          assignmentNotes: undefined,
-        };
-      }),
-    };
-
-    setDb(saveDatabase(nextDb));
+    setDb((prev) =>
+      saveDatabase({
+        ...prev,
+        territories: prev.territories.map((t) =>
+          t.id === territoryId
+            ? syncTerritoryAssigneeFields(t, assignees, assignmentNotes)
+            : t
+        ),
+      })
+    );
   };
 
   const handleCompleteWholeTerritory = (
@@ -507,21 +504,29 @@ export const App: React.FC = () => {
           setLoggedConductor(firstAdmin);
           setAuthRole('admin');
           setMapOpenForTerritoryId(null);
+          setIsGeneralMapOpen(false);
         }}
       />
     );
   }
 
-  // ROL 3: Si es un Publicador que entró con el link especial (?grupo=ID), mostrar la vista Ultra-Ligera sin Login
+  // ROL 3: Si es un Publicador que entró con el link especial (?grupo=ID o ?territorio=ID), mostrar la vista Ultra-Ligera sin Login
   if (authRole === 'publisher_link') {
     const slotList = db.schedule || [];
-    const slot =
-      slotList.find((s) => s.id === publisherSlotId) || slotList[0];
-    if (slot) {
+    const slot = publisherSlotId
+      ? slotList.find((s) => s.id === publisherSlotId) ||
+        (!publisherTerritoryId ? slotList[0] : undefined)
+      : undefined;
+    const hasPersonalTerr = Boolean(
+      publisherTerritoryId &&
+        db.territories.some((t) => t.id === publisherTerritoryId)
+    );
+    if (slot || hasPersonalTerr) {
       return (
         <ErrorBoundary>
           <PublisherLightView
             slot={slot}
+            personalTerritoryId={publisherTerritoryId}
             territories={db.territories}
             blocks={db.blocks}
             housePoints={db.housePoints}
@@ -578,6 +583,7 @@ export const App: React.FC = () => {
               setAuthRole(role);
               setLoggedConductor(conductor || null);
               setMapOpenForTerritoryId(null);
+              setIsGeneralMapOpen(false);
             }}
           />
 
@@ -601,6 +607,7 @@ export const App: React.FC = () => {
           onClick={() => {
             setMapOpenForTerritoryId(null);
             setActiveSlotForMap(null);
+            setIsGeneralMapOpen(false);
           }}
           className="rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-300/70 cursor-pointer shrink-0 transition hover:opacity-90"
           title={`TerriMap${db.congregationName ? ` — ${db.congregationName}` : ''}`}
@@ -629,6 +636,7 @@ export const App: React.FC = () => {
               onClick={() => {
                 setMapOpenForTerritoryId(null);
                 setActiveSlotForMap(null);
+                setIsGeneralMapOpen(false);
                 setAuthRole((prev) =>
                   prev === 'admin' ? 'conductor' : 'admin'
                 );
@@ -664,6 +672,7 @@ export const App: React.FC = () => {
               setLoggedConductor(null);
               setMapOpenForTerritoryId(null);
               setActiveSlotForMap(null);
+              setIsGeneralMapOpen(false);
             }}
             className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer"
           >
@@ -674,7 +683,14 @@ export const App: React.FC = () => {
       </header>
 
       <main className="flex-1 min-h-0">
-        {mapOpenForTerritoryId ? (
+        {isGeneralMapOpen ? (
+          <GeneralMapView
+            territories={db.territories}
+            blocks={db.blocks}
+            congregationName={db.congregationName}
+            onBack={() => setIsGeneralMapOpen(false)}
+          />
+        ) : mapOpenForTerritoryId ? (
           <FieldMapView
             territories={db.territories}
             blocks={db.blocks}
@@ -691,9 +707,7 @@ export const App: React.FC = () => {
                 ? db.territories
                     .filter(
                       (t) =>
-                        t.assignedToId === loggedConductor.id ||
-                        (t.assignedToName &&
-                          t.assignedToName === loggedConductor.name) ||
+                        isTerritoryAssignedTo(t, loggedConductor) ||
                         t.id === mapOpenForTerritoryId
                     )
                     .map((t) => t.id)
@@ -723,15 +737,18 @@ export const App: React.FC = () => {
             housePoints={db.housePoints}
             pushNotifications={db.pushNotifications}
             onOpenSlotMap={(slot) => {
+              setIsGeneralMapOpen(false);
               setActiveSlotForMap(slot);
               setMapOpenForTerritoryId(
                 slot.territoryIds[0] || db.territories[0]?.id || 'terr-1'
               );
             }}
             onOpenTerritoryMap={(territoryId) => {
+              setIsGeneralMapOpen(false);
               setActiveSlotForMap(null);
               setMapOpenForTerritoryId(territoryId);
             }}
+            onOpenGeneralMap={() => setIsGeneralMapOpen(true)}
             onCompleteWholeTerritory={(territoryId, condName) =>
               handleCompleteWholeTerritory(territoryId, condName)
             }
@@ -749,9 +766,11 @@ export const App: React.FC = () => {
           <AdminDashboard
             db={db}
             onOpenTerritoryInMap={(territoryId) => {
+              setIsGeneralMapOpen(false);
               setActiveSlotForMap(null);
               setMapOpenForTerritoryId(territoryId);
             }}
+            onOpenGeneralMap={() => setIsGeneralMapOpen(true)}
             onImportMapsData={(
               newTerritories: Territory[],
               newBlocks: Block[],
@@ -824,62 +843,72 @@ export const App: React.FC = () => {
                 })
               );
             }}
-            onAddScheduleSlot={(slotData) => {
+            onAddScheduleSlot={(slotData, assignmentModes) => {
               const newSlot: ScheduleSlot = {
                 ...slotData,
-                id: `sched-${Date.now()}`,
+                id: `sched-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               };
               const assignDate = slotData.date || new Date().toISOString().slice(0, 10);
               const slotTerritorySet = new Set(slotData.territoryIds);
-              setDb(
+              const slotConds = getSlotConductors(newSlot);
+              const slotAssignees: TerritoryAssignee[] = slotConds.map((c) => ({
+                id: c.id,
+                name: c.name,
+                assignedAt: assignDate,
+              }));
+
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  schedule: [...db.schedule, newSlot],
-                  territories: db.territories.map((t) =>
-                    slotTerritorySet.has(t.id)
-                      ? {
-                          ...t,
-                          assignedToId: slotData.conductorId,
-                          assignedToName: slotData.conductorName,
-                          assignedAt: assignDate,
-                          lastConductor: slotData.conductorName,
-                          startedAt: t.startedAt || assignDate,
-                        }
-                      : t
-                  ),
+                  ...prev,
+                  schedule: [...prev.schedule, newSlot],
+                  territories: prev.territories.map((t) => {
+                    if (!slotTerritorySet.has(t.id)) return t;
+                    const mode = assignmentModes?.[t.id] || 'add';
+                    const existing = getTerritoryAssignees(t);
+                    const nextAssignees =
+                      mode === 'replace'
+                        ? slotAssignees
+                        : [...existing, ...slotAssignees];
+                    return syncTerritoryAssigneeFields(t, nextAssignees);
+                  }),
                 })
               );
             }}
             onDeleteScheduleSlot={(slotId) => {
-              setDb(
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  schedule: db.schedule.filter((s) => s.id !== slotId),
+                  ...prev,
+                  schedule: prev.schedule.filter((s) => s.id !== slotId),
                 })
               );
             }}
-            onUpdateScheduleSlot={(updatedSlot) => {
+            onUpdateScheduleSlot={(updatedSlot, assignmentModes) => {
               const assignDate =
                 updatedSlot.date || new Date().toISOString().slice(0, 10);
               const slotTerritorySet = new Set(updatedSlot.territoryIds);
-              setDb(
+              const slotConds = getSlotConductors(updatedSlot);
+              const slotAssignees: TerritoryAssignee[] = slotConds.map((c) => ({
+                id: c.id,
+                name: c.name,
+                assignedAt: assignDate,
+              }));
+
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  schedule: db.schedule.map((s) =>
+                  ...prev,
+                  schedule: prev.schedule.map((s) =>
                     s.id === updatedSlot.id ? updatedSlot : s
                   ),
-                  territories: db.territories.map((t) =>
-                    slotTerritorySet.has(t.id)
-                      ? {
-                          ...t,
-                          assignedToId: updatedSlot.conductorId,
-                          assignedToName: updatedSlot.conductorName,
-                          assignedAt: assignDate,
-                          lastConductor: updatedSlot.conductorName,
-                          startedAt: t.startedAt || assignDate,
-                        }
-                      : t
-                  ),
+                  territories: prev.territories.map((t) => {
+                    if (!slotTerritorySet.has(t.id)) return t;
+                    const mode = assignmentModes?.[t.id] || 'add';
+                    const existing = getTerritoryAssignees(t);
+                    const nextAssignees =
+                      mode === 'replace'
+                        ? slotAssignees
+                        : [...existing, ...slotAssignees];
+                    return syncTerritoryAssigneeFields(t, nextAssignees);
+                  }),
                 })
               );
             }}
@@ -959,20 +988,32 @@ export const App: React.FC = () => {
               );
             }}
             onSendPushNotificationToConductor={(params) => {
-              const newPush: PushNotificationItem = {
-                id: `push-${Date.now()}`,
-                conductorId: params.conductorId,
-                conductorName: params.conductorName,
-                slotId: params.slotId,
-                title: params.title,
-                body: params.body,
-                createdAt: new Date().toISOString(),
-                readByConductor: false,
-              };
-              setDb(
+              const targets =
+                params.recipients && params.recipients.length > 0
+                  ? params.recipients
+                  : [
+                      {
+                        conductorId: params.conductorId,
+                        conductorName: params.conductorName,
+                      },
+                    ];
+              const nowIso = new Date().toISOString();
+              const newItems: PushNotificationItem[] = targets.map(
+                (target, idx) => ({
+                  id: `push-${Date.now()}-${idx}`,
+                  conductorId: target.conductorId,
+                  conductorName: target.conductorName,
+                  slotId: params.slotId,
+                  title: params.title,
+                  body: params.body,
+                  createdAt: nowIso,
+                  readByConductor: false,
+                })
+              );
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  pushNotifications: [newPush, ...db.pushNotifications],
+                  ...prev,
+                  pushNotifications: [...newItems, ...prev.pushNotifications],
                 })
               );
             }}
@@ -982,7 +1023,7 @@ export const App: React.FC = () => {
             onResetTerritory={(territoryId) =>
               handleResetTerritory(territoryId, 'Administrador')
             }
-            onAssignTerritory={handleAssignTerritory}
+            onUpdateTerritoryAssignees={handleUpdateTerritoryAssignees}
             onUpdateCongregationSettings={(name, pin) => {
               setDb(
                 saveDatabase({
