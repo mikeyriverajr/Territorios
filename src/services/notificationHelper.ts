@@ -67,14 +67,17 @@ export function formatScheduleSlotMessage(slot: ScheduleSlot): string {
   const dayLabel = slot.dayOfWeek || slot.dayName || 'Día por definir';
   const time = slot.time || '00:00';
   const conductor = getSlotConductorLabel(slot);
-  const location = slot.meetingPointName || 'Por asignar';
-  const url = slot.meetingPointUrl || '';
-  return [
+  const location = slot.meetingPointName?.trim() || 'Por asignar';
+  const url = slot.meetingPointUrl?.trim() || '';
+  const lines = [
     `🔹 ${dayLabel} - ${time} hs`,
     `👤 Encargado: ${conductor}`,
     `📍 Ubicación: ${location}`,
-    `🗺️ Punto de Encuentro: ${url}`,
-  ].join('\n');
+  ];
+  if (url) {
+    lines.push(`🗺️ Punto de Encuentro: ${url}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -137,14 +140,18 @@ export function renderPushTemplate(
   housePoints: HousePoint[],
   conductorOverrideName?: string
 ): { title: string; body: string } {
+  const slotTerritoryIds = Array.isArray(slot.territoryIds)
+    ? slot.territoryIds
+    : [];
   const assignedTerritories = territories.filter((t) =>
-    slot.territoryIds.includes(t.id)
+    slotTerritoryIds.includes(t.id)
   );
   const terrNames =
-    assignedTerritories.map((t) => t.name).join(', ') || 'Territorio asignado';
+    assignedTerritories.map((t) => t.name).join(', ') ||
+    'Sin territorio asignado';
 
   const relevantPoints = housePoints.filter((p) =>
-    slot.territoryIds.includes(p.territoryId)
+    slotTerritoryIds.includes(p.territoryId)
   );
   const noVisitarCount = relevantPoints.filter(
     (p) => p.category === 'no_visitar'
@@ -154,13 +161,15 @@ export function renderPushTemplate(
   ).length;
 
   const conductorLabel = conductorOverrideName || getSlotConductorLabel(slot);
+  const dayLabel = slot.dayOfWeek || slot.dayName || 'Día por definir';
+  const meetingPointLabel = slot.meetingPointName?.trim() || 'Por asignar';
 
   const replaceVars = (text: string) =>
     text
       .replace(/\{conductor\}/g, conductorLabel)
-      .replace(/\{dia\}/g, slot.dayName)
+      .replace(/\{dia\}/g, dayLabel)
       .replace(/\{hora\}/g, slot.time)
-      .replace(/\{punto_encuentro\}/g, slot.meetingPointName)
+      .replace(/\{punto_encuentro\}/g, meetingPointLabel)
       .replace(/\{territorio\}/g, terrNames)
       .replace(/\{no_en_casa_pendientes\}/g, String(noEnCasaCount))
       .replace(/\{no_visitar\}/g, String(noVisitarCount));

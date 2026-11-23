@@ -515,7 +515,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
           <div className="min-w-0">
             <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 truncate">
               {slot
-                ? `${slot.dayName} (${slot.time} hs) • Conductor: ${getSlotConductorLabel(slot)}`
+                ? `${slot.dayOfWeek || slot.dayName} (${slot.time} hs) • Conductor: ${getSlotConductorLabel(slot)}`
                 : (() => {
                     const assignees = activeTerritory
                       ? getTerritoryAssignees(activeTerritory)

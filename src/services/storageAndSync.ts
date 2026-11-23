@@ -18,6 +18,22 @@ import { isPointInPolygon } from './kmlImporter';
 const STORAGE_KEY = 'territorios_congregacion_db_v3';
 const SUPABASE_CONFIG_KEY = 'territorios_supabase_config_v1';
 
+export const DAYS_OF_WEEK = [
+  'Domingo',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+];
+
+export function dayOfWeekFromDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (!y || !m || !d) return 'Lunes';
+  return DAYS_OF_WEEK[new Date(y, m - 1, d).getDay()];
+}
+
 export interface CloudSyncConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
@@ -362,7 +378,8 @@ export function getDemoDatabase(): AppDatabase {
   const schedule: ScheduleSlot[] = [
     {
       id: 'sched-1',
-      dayName: 'Martes Mañana',
+      dayName: 'Martes',
+      dayOfWeek: 'Martes',
       date: today,
       time: '09:30',
       conductorId: 'cond-1',
@@ -375,7 +392,8 @@ export function getDemoDatabase(): AppDatabase {
     },
     {
       id: 'sched-2',
-      dayName: 'Jueves Tarde',
+      dayName: 'Jueves',
+      dayOfWeek: 'Jueves',
       date: today,
       time: '17:00',
       conductorId: 'cond-2',
@@ -587,6 +605,8 @@ export function sanitizeDatabase(parsed: Partial<AppDatabase>): AppDatabase {
           conductorName: conds[0]?.name || s?.conductorName || '',
           conductorIds: conds.map((c) => c.id),
           conductorNames: conds.map((c) => c.name),
+          meetingPointName: s?.meetingPointName || '',
+          meetingPointUrl: s?.meetingPointUrl || '',
           territoryIds: Array.isArray(s?.territoryIds) ? s.territoryIds : [],
         };
       })

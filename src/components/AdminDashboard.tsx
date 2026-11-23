@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Edit3,
   Save,
   Share2,
@@ -63,6 +64,8 @@ import {
 } from '../services/notificationHelper';
 import {
   CloudSyncConfig,
+  DAYS_OF_WEEK,
+  dayOfWeekFromDate,
   getEnvCloudConfig,
   getSlotConductorLabel,
   getSlotConductors,
@@ -80,22 +83,6 @@ import {
 import { MapEditorFocusRequest, MapEditorView } from './MapEditorView';
 import { HelpCenterModal } from './HelpCenterModal';
 import { compareBlockCodes } from '../services/mapGeometry';
-
-const DAYS_OF_WEEK = [
-  'Domingo',
-  'Lunes',
-  'Martes',
-  'Miércoles',
-  'Jueves',
-  'Viernes',
-  'Sábado',
-];
-
-function dayOfWeekFromDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  if (!y || !m || !d) return 'Lunes';
-  return DAYS_OF_WEEK[new Date(y, m - 1, d).getDay()];
-}
 
 /** Mueve la fecha a la próxima ocurrencia (desde la fecha actual) del día de semana elegido */
 function shiftDateToDayOfWeek(iso: string, targetDay: string): string {
@@ -202,11 +189,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [slotDate, setSlotDate] = useState<string>(todayIso);
   const [dayOfWeek, setDayOfWeek] = useState<string>(dayOfWeekFromDate(todayIso));
-  const [shiftLabel, setShiftLabel] = useState<string>('Mañana');
   const [time, setTime] = useState<string>('09:30');
-  const [selectedConductorIds, setSelectedConductorIds] = useState<string[]>(
-    () => (db.conductors[0]?.id ? [db.conductors[0].id] : [])
-  );
+  const [selectedConductorIds, setSelectedConductorIds] = useState<string[]>([]);
   const [conductorToAdd, setConductorToAdd] = useState<string>('');
   const [meetingPointName, setMeetingPointName] = useState<string>('');
   const [meetingPointUrl, setMeetingPointUrl] = useState<string>('');
@@ -221,6 +205,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     existingNames: string[];
     newConductorNames: string[];
     source: 'select' | 'submit';
+  } | null>(null);
+  const [missingFieldsWarningModal, setMissingFieldsWarningModal] = useState<{
+    missingFields: Array<'encargado' | 'ubicacion'>;
+    pendingModes: Record<string, 'add' | 'replace'>;
   } | null>(null);
 
   // Estados para el Módulo Exclusivo de Notificaciones Push
@@ -388,15 +376,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setEditingSlotId(null);
     setSlotDate(todayIso);
     setDayOfWeek(dayOfWeekFromDate(todayIso));
-    setShiftLabel('Mañana');
     setTime('09:30');
-    setSelectedConductorIds(db.conductors[0]?.id ? [db.conductors[0].id] : []);
+    setSelectedConductorIds([]);
     setConductorToAdd('');
     setMeetingPointName('');
     setMeetingPointUrl('');
     setSelectedTerritoryIds([]);
     setTerritoryAssignmentModes({});
     setAssignmentConflictModal(null);
+    setMissingFieldsWarningModal(null);
     setSlotNotes('');
   };
 
@@ -404,8 +392,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setEditingSlotId(slot.id);
     setSlotDate(slot.date || todayIso);
     setDayOfWeek(slot.dayOfWeek || dayOfWeekFromDate(slot.date || todayIso));
-    const shift = slot.dayName.replace(slot.dayOfWeek || '', '').trim();
-    setShiftLabel(shift || 'Mañana');
     setTime(slot.time);
     const slotCondIds = getSlotConductors(slot)
       .map((c) => c.id)
@@ -418,11 +404,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         : []
     );
     setConductorToAdd('');
-    setMeetingPointName(slot.meetingPointName);
-    setMeetingPointUrl(slot.meetingPointUrl);
-    setSelectedTerritoryIds(slot.territoryIds);
+    setMeetingPointName(slot.meetingPointName || '');
+    setMeetingPointUrl(slot.meetingPointUrl || '');
+    setSelectedTerritoryIds(slot.territoryIds || []);
     setTerritoryAssignmentModes({});
     setAssignmentConflictModal(null);
+    setMissingFieldsWarningModal(null);
     setSlotNotes(slot.notes || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -448,33 +435,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const submitSlotWithModes = (modes: Record<string, 'add' | 'replace'>) => {
-    const selectedConds = selectedConductorIds
-      .map((id) => db.conductors.find((c) => c.id === id))
-      .filter((c): c is ConductorUser => Boolean(c));
-    if (
-      selectedConds.length === 0 ||
-      !meetingPointName.trim() ||
-      selectedTerritoryIds.length === 0
-    ) {
+    if (!slotDate.trim() || !time.trim()) {
       return;
     }
 
+    const selectedConds = selectedConductorIds
+      .map((id) => db.conductors.find((c) => c.id === id))
+      .filter((c): c is ConductorUser => Boolean(c));
     const primary = selectedConds[0];
+    const resolvedDayOfWeek = dayOfWeek || dayOfWeekFromDate(slotDate);
+    const cleanMeetingName = meetingPointName.trim();
+    const cleanMeetingUrl = meetingPointUrl.trim();
     const payload: Omit<ScheduleSlot, 'id'> = {
-      dayName: `${dayOfWeek} ${shiftLabel}`.trim(),
-      dayOfWeek,
+      dayName: resolvedDayOfWeek,
+      dayOfWeek: resolvedDayOfWeek,
       date: slotDate,
       time,
-      conductorId: primary.id,
-      conductorName: primary.name,
+      conductorId: primary?.id || '',
+      conductorName: primary?.name || '',
       conductorIds: selectedConds.map((c) => c.id),
       conductorNames: selectedConds.map((c) => c.name),
-      meetingPointName: meetingPointName.trim(),
+      meetingPointName: cleanMeetingName,
       meetingPointUrl:
-        meetingPointUrl.trim() ||
-        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-          meetingPointName.trim()
-        )}`,
+        cleanMeetingUrl ||
+        (cleanMeetingName
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+              cleanMeetingName
+            )}`
+          : ''),
       territoryIds: selectedTerritoryIds,
       notes: slotNotes.trim() || undefined,
     };
@@ -487,37 +475,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     resetSlotForm();
   };
 
-  const handleCreateSlot = (e: React.FormEvent) => {
-    e.preventDefault();
+  const checkMissingFieldsAndSubmit = (
+    modes: Record<string, 'add' | 'replace'>
+  ) => {
     const selectedConds = selectedConductorIds
       .map((id) => db.conductors.find((c) => c.id === id))
       .filter((c): c is ConductorUser => Boolean(c));
-    if (
-      selectedConds.length === 0 ||
-      !meetingPointName.trim() ||
-      selectedTerritoryIds.length === 0
-    ) {
+    const missingFields: Array<'encargado' | 'ubicacion'> = [];
+    if (selectedConds.length === 0) missingFields.push('encargado');
+    if (!meetingPointName.trim()) missingFields.push('ubicacion');
+
+    if (missingFields.length > 0) {
+      setMissingFieldsWarningModal({
+        missingFields,
+        pendingModes: modes,
+      });
       return;
     }
 
-    // Si algún territorio tiene otros asignados y aún no se eligió Agregar o Reemplazar, preguntar
-    for (const tid of selectedTerritoryIds) {
-      if (territoryAssignmentModes[tid]) continue;
-      const terr = db.territories.find((t) => t.id === tid);
-      if (!terr) continue;
-      const conflicts = getConflictingAssigneeNames(terr, selectedConductorIds);
-      if (conflicts.length > 0) {
-        setAssignmentConflictModal({
-          territory: terr,
-          existingNames: conflicts,
-          newConductorNames: selectedConds.map((c) => c.name),
-          source: 'submit',
-        });
-        return;
+    submitSlotWithModes(modes);
+  };
+
+  const handleCreateSlot = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!slotDate.trim() || !time.trim()) {
+      return;
+    }
+
+    const selectedConds = selectedConductorIds
+      .map((id) => db.conductors.find((c) => c.id === id))
+      .filter((c): c is ConductorUser => Boolean(c));
+
+    // Si hay encargados seleccionados y algún territorio tiene otros asignados sin resolver, preguntar
+    if (selectedConds.length > 0) {
+      for (const tid of selectedTerritoryIds) {
+        if (territoryAssignmentModes[tid]) continue;
+        const terr = db.territories.find((t) => t.id === tid);
+        if (!terr) continue;
+        const conflicts = getConflictingAssigneeNames(
+          terr,
+          selectedConductorIds
+        );
+        if (conflicts.length > 0) {
+          setAssignmentConflictModal({
+            territory: terr,
+            existingNames: conflicts,
+            newConductorNames: selectedConds.map((c) => c.name),
+            source: 'submit',
+          });
+          return;
+        }
       }
     }
 
-    submitSlotWithModes(territoryAssignmentModes);
+    checkMissingFieldsAndSubmit(territoryAssignmentModes);
   };
 
   const [copiedScheduleToast, setCopiedScheduleToast] = useState<string | null>(null);
@@ -722,7 +733,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleCopySingleSlotText = async (slot: ScheduleSlot) => {
     const text = formatScheduleSlotMessage(slot);
     await copyTextToClipboard(text);
-    setCopiedScheduleToast(`📋 Salida de ${slot.dayName} copiada con emoticonos`);
+    const dayLabel = slot.dayOfWeek || slot.dayName || 'Salida';
+    setCopiedScheduleToast(`📋 Salida de ${dayLabel} copiada con emoticonos`);
     setTimeout(() => setCopiedScheduleToast(null), 3500);
   };
 
@@ -738,8 +750,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setEditingSlotId(null);
     setSlotDate(nextDate);
     setDayOfWeek(slot.dayOfWeek || dayOfWeekFromDate(nextDate));
-    const shift = slot.dayName.replace(slot.dayOfWeek || '', '').trim();
-    setShiftLabel(shift || 'Mañana');
     setTime(slot.time);
     const slotCondIds = getSlotConductors(slot)
       .map((c) => c.id)
@@ -752,10 +762,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         : []
     );
     setConductorToAdd('');
-    setMeetingPointName(slot.meetingPointName);
-    setMeetingPointUrl(slot.meetingPointUrl);
-    setSelectedTerritoryIds(slot.territoryIds);
+    setMeetingPointName(slot.meetingPointName || '');
+    setMeetingPointUrl(slot.meetingPointUrl || '');
+    setSelectedTerritoryIds(slot.territoryIds || []);
     setTerritoryAssignmentModes({});
+    setAssignmentConflictModal(null);
+    setMissingFieldsWarningModal(null);
     setSlotNotes(slot.notes || '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     setCopiedScheduleToast(`📋 Salida clonada (+7 días: ${nextDate}). Modifique los datos y pulse Publicar Salida`);
@@ -775,22 +787,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         // fallback
       }
       const conds = getSlotConductors(slot);
-      slot.territoryIds.forEach((tid) => {
+      const resolvedDay = slot.dayOfWeek || dayOfWeekFromDate(nextDate);
+      const safeTerritoryIds = Array.isArray(slot.territoryIds)
+        ? slot.territoryIds
+        : [];
+      safeTerritoryIds.forEach((tid) => {
         defaultAddModes[tid] = 'add';
       });
       onAddScheduleSlot(
         {
-          dayName: slot.dayName,
-          dayOfWeek: slot.dayOfWeek,
+          dayName: resolvedDay,
+          dayOfWeek: resolvedDay,
           date: nextDate,
           time: slot.time,
-          conductorId: slot.conductorId,
-          conductorName: slot.conductorName,
+          conductorId: conds[0]?.id || slot.conductorId || '',
+          conductorName: conds[0]?.name || slot.conductorName || '',
           conductorIds: conds.map((c) => c.id),
           conductorNames: conds.map((c) => c.name),
-          meetingPointName: slot.meetingPointName,
-          meetingPointUrl: slot.meetingPointUrl,
-          territoryIds: slot.territoryIds,
+          meetingPointName: slot.meetingPointName || '',
+          meetingPointUrl: slot.meetingPointUrl || '',
+          territoryIds: safeTerritoryIds,
           notes: slot.notes,
         },
         defaultAddModes
@@ -808,7 +824,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const recipients =
       slotConds.length > 0
         ? slotConds.map((c) => ({ conductorId: c.id, conductorName: c.name }))
-        : [{ conductorId: slot.conductorId, conductorName: slot.conductorName }];
+        : slot.conductorId
+        ? [{ conductorId: slot.conductorId, conductorName: slot.conductorName }]
+        : [];
+    if (recipients.length === 0) {
+      setPushFeedback('⚠️ Esta salida aún no tiene un encargado asignado.');
+      setTimeout(() => setPushFeedback(''), 4000);
+      return;
+    }
 
     const rendered = renderPushTemplate(
       tpl,
@@ -1042,7 +1065,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         return;
                       }
                     }
-                    submitSlotWithModes(nextModes);
+                    checkMissingFieldsAndSubmit(nextModes);
                   }
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-black text-xs sm:text-sm cursor-pointer"
@@ -1087,7 +1110,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         return;
                       }
                     }
-                    submitSlotWithModes(nextModes);
+                    checkMissingFieldsAndSubmit(nextModes);
                   }
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs sm:text-sm cursor-pointer"
@@ -1101,6 +1124,84 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
               >
                 Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de advertencia previa cuando Encargado y/o Ubicación quedan vacíos */}
+      {missingFieldsWarningModal && (
+        <div
+          className="fixed inset-0 z-[2100] bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border-2 border-amber-500 p-5 sm:p-6 space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-100 text-amber-700 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="inline-block px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-black uppercase">
+                    Campos opcionales sin completar
+                  </span>
+                  <h3 className="text-lg font-black text-slate-900 mt-1">
+                    Faltan datos en la salida
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMissingFieldsWarningModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs sm:text-sm text-amber-950 space-y-1.5">
+              {missingFieldsWarningModal.missingFields.includes('encargado') && (
+                <div>
+                  👤 <strong>Encargado(s):</strong> quedó sin elegir y se mostrará como{' '}
+                  <em>"Por asignar"</em>.
+                </div>
+              )}
+              {missingFieldsWarningModal.missingFields.includes('ubicacion') && (
+                <div>
+                  📍 <strong>Ubicación:</strong> quedó vacía y se mostrará como{' '}
+                  <em>"Por asignar"</em>.
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              {editingSlotId
+                ? '¿Deseas guardar los cambios de todas formas? Podrás editar la salida y completar estos datos más adelante.'
+                : '¿Deseas publicar esta salida de todas formas? Podrás editarla y completar estos datos más adelante.'}
+            </p>
+
+            <div className="flex flex-col gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const modes = missingFieldsWarningModal.pendingModes;
+                  setMissingFieldsWarningModal(null);
+                  submitSlotWithModes(modes);
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs sm:text-sm cursor-pointer"
+              >
+                {editingSlotId
+                  ? 'Guardar de todas formas'
+                  : 'Publicar de todas formas'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMissingFieldsWarningModal(null)}
+                className="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+              >
+                Volver y completar
               </button>
             </div>
           </div>
@@ -1175,18 +1276,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
               </div>
 
-              {/* Fecha + Día de la semana + Turno + Hora */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {/* Fecha + Día de la semana + Hora */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Fecha:
+                    Fecha <span className="text-red-600">*</span>:
                   </label>
                   <input
                     type="date"
                     value={slotDate}
                     onChange={(e) => {
-                      setSlotDate(e.target.value);
-                      setDayOfWeek(dayOfWeekFromDate(e.target.value));
+                      const val = e.target.value;
+                      setSlotDate(val);
+                      if (val) {
+                        setDayOfWeek(dayOfWeekFromDate(val));
+                      }
                     }}
                     className="w-full min-w-0 h-[42px] px-2.5 rounded-xl border border-slate-300 font-semibold text-sm bg-white"
                     required
@@ -1213,22 +1317,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Turno:
-                  </label>
-                  <select
-                    value={shiftLabel}
-                    onChange={(e) => setShiftLabel(e.target.value)}
-                    className="w-full min-w-0 h-[42px] px-2.5 rounded-xl border border-slate-300 font-bold text-sm bg-white"
-                  >
-                    <option value="Mañana">Mañana</option>
-                    <option value="Tarde">Tarde</option>
-                    <option value="Noche">Noche</option>
-                    <option value="">(Sin turno)</option>
-                  </select>
-                </div>
-                <div className="min-w-0">
-                  <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Hora:
+                    Hora <span className="text-red-600">*</span>:
                   </label>
                   <input
                     type="time"
@@ -1243,7 +1332,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
                 <div className="min-w-0">
                   <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                    Encargado(s):
+                    Encargado(s) <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
                   </label>
                   <select
                     value={conductorToAdd}
@@ -1295,15 +1384,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       })}
                     </div>
                   ) : (
-                    <p className="text-[11px] text-red-600 font-semibold mt-1">
-                      Seleccione al menos un encargado.
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Opcional — se mostrará como "Por asignar" hasta elegir uno.
                     </p>
                   )}
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <label className="block text-xs font-extrabold uppercase text-slate-600">
-                      Ubicación:
+                      Ubicación <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
                     </label>
                     <button
                       type="button"
@@ -1316,8 +1405,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <select
                     value={meetingPointName}
                     onChange={(e) => {
+                      const prevLoc = customLocations.find(
+                        (l) => l.name === meetingPointName
+                      );
                       const val = e.target.value;
                       setMeetingPointName(val);
+                      if (!val) {
+                        if (prevLoc && meetingPointUrl === (prevLoc.url || '')) {
+                          setMeetingPointUrl('');
+                        }
+                        return;
+                      }
                       const found = customLocations.find(
                         (l) => l.name === val
                       );
@@ -1326,10 +1424,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       }
                     }}
                     className="w-full min-w-0 h-[42px] px-3 rounded-xl border border-slate-300 font-bold text-sm bg-white"
-                    required
                   >
-                    <option value="" disabled>
-                      Elegir ubicación...
+                    <option value="">
+                      Sin ubicación (opcional)...
                     </option>
                     {customLocations.map((loc) => (
                       <option key={loc.id} value={loc.name}>
@@ -1350,7 +1447,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="min-w-0">
                 <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                  Punto de Encuentro (Link Maps):
+                  Punto de Encuentro (Link Maps, opcional):
                 </label>
                 <input
                   type="text"
@@ -1440,7 +1537,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {/* Selector enriquecido de territorios */}
               <div className="min-w-0">
                 <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                  Territorio(s):
+                  Territorio(s) <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
                 </label>
                 <div className="min-w-0">
                   <select
@@ -1528,14 +1625,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 ) : (
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Elija al menos un territorio.
+                    Opcional — puedes asignar territorio(s) ahora o más adelante.
                   </p>
                 )}
               </div>
 
               <div className="min-w-0">
                 <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                  Notas para el conductor:
+                  Notas para el conductor <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
                 </label>
                 <input
                   type="text"
@@ -1548,7 +1645,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <button
                 type="submit"
-                disabled={selectedConductorIds.length === 0}
                 className={`w-full sm:w-auto px-6 py-3 disabled:opacity-50 text-white font-black text-sm rounded-xl shadow-sm inline-flex items-center justify-center gap-2 cursor-pointer ${
                   editingSlotId
                     ? 'bg-amber-600 hover:bg-amber-700'
@@ -1649,8 +1745,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </span>
                         </div>
                         <div className="text-xs text-slate-700 space-y-0.5 min-w-0">
-                          <div>👤 <strong>Encargado(s):</strong> {getSlotConductorLabel(slot)}</div>
-                          <div>📍 <strong>Ubicación:</strong> {slot.meetingPointName}</div>
+                          <div>
+                            👤 <strong>Encargado(s):</strong>{' '}
+                            {getSlotConductors(slot).length > 0 ? (
+                              getSlotConductorLabel(slot)
+                            ) : (
+                              <span className="text-amber-700 italic">Por asignar</span>
+                            )}
+                          </div>
+                          <div>
+                            📍 <strong>Ubicación:</strong>{' '}
+                            {slot.meetingPointName?.trim() || (
+                              <span className="text-amber-700 italic">Por asignar</span>
+                            )}
+                          </div>
                           {slot.meetingPointUrl && (
                             <div className="text-[11px] text-blue-700 flex items-baseline gap-1 min-w-0">
                               <span className="shrink-0">
@@ -1943,7 +2051,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               >
                 {db.schedule.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.dayName} ({s.time} hs) — {getSlotConductorLabel(s)}
+                    {s.dayOfWeek || s.dayName} ({s.time} hs) — {getSlotConductorLabel(s)}
                   </option>
                 ))}
               </select>
@@ -2067,16 +2175,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
 
                       {previewSlot && (
-                        <button
-                          onClick={() =>
-                            handleDispatchPushFromTemplate(tpl, previewSlot)
-                          }
-                          className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs sm:text-sm rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer transition"
-                        >
-                          <Send className="w-4 h-4" />
-                          Enviar esta Notificación Push a{' '}
-                          {getSlotConductorLabel(previewSlot)} Ahora
-                        </button>
+                        getSlotConductors(previewSlot).length > 0 ? (
+                          <button
+                            onClick={() =>
+                              handleDispatchPushFromTemplate(tpl, previewSlot)
+                            }
+                            className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs sm:text-sm rounded-xl shadow-sm flex items-center justify-center gap-2 cursor-pointer transition"
+                          >
+                            <Send className="w-4 h-4" />
+                            Enviar esta Notificación Push a{' '}
+                            {getSlotConductorLabel(previewSlot)} Ahora
+                          </button>
+                        ) : (
+                          <div className="w-full py-2.5 px-3 rounded-xl bg-slate-100 border border-slate-300 text-slate-600 text-xs font-bold text-center">
+                            Asigna un encargado a esta salida para enviarle la notificación Push.
+                          </div>
+                        )
                       )}
                     </div>
                   </div>

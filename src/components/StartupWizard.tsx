@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Calendar,
@@ -33,6 +34,7 @@ import {
 import {
   CONGREGATION_STATE_SQL,
   connectAndFetchFromSupabase,
+  dayOfWeekFromDate,
   getDefaultNotificationTemplates,
   getDemoDatabase,
   loadCloudConfig,
@@ -90,13 +92,17 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
   const [step3Error, setStep3Error] = useState<string>('');
 
   // Paso 4: Primera Salida del Programa Semanal (Opcional)
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [schedule, setSchedule] = useState<ScheduleSlot[]>([]);
-  const [dayName, setDayName] = useState<string>('Sábado Mañana');
+  const [slotDate, setSlotDate] = useState<string>(todayIso);
   const [time, setTime] = useState<string>('09:30');
   const [selectedConductorId, setSelectedConductorId] = useState<string>('');
   const [meetingPointName, setMeetingPointName] = useState<string>('');
   const [meetingPointUrl, setMeetingPointUrl] = useState<string>('');
   const [selectedTerritoryId, setSelectedTerritoryId] = useState<string>('');
+  const [wizardMissingWarning, setWizardMissingWarning] = useState<
+    Array<'encargado' | 'ubicacion'> | null
+  >(null);
 
   // Paso 1 -> Paso 2
   const handleNextFromStep1 = (e: React.FormEvent) => {
@@ -186,7 +192,6 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
       const kmlText = await extractKmlTextFromFile(file);
       const parsedTerrs = parseTerritoriesKml(kmlText);
       setTerritories(parsedTerrs);
-      if (parsedTerrs[0]) setSelectedTerritoryId(parsedTerrs[0].id);
       setMapImportMsg(
         `✅ Archivo 1 cargado: ${parsedTerrs.length} territorio(s) detectado(s). Ahora suba el Archivo 2 (Manzanas / Casas).`
       );
@@ -214,9 +219,6 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
       setTerritories(updatedTerritories);
       setBlocks(parsedBlocks);
       setHousePoints(ruralAndAlertPoints);
-      if (updatedTerritories[0] && !selectedTerritoryId) {
-        setSelectedTerritoryId(updatedTerritories[0].id);
-      }
       setMapImportMsg(
         `✅ Archivo 2 vinculado: ${parsedBlocks.length} manzanas (1A, 1B...) y ${ruralAndAlertPoints.length} casas rurales unidas automáticamente a sus territorios.`
       );
@@ -251,9 +253,6 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
       setTerritories(updatedTerritories);
       setBlocks(parsedBlocks);
       setHousePoints(ruralAndAlertPoints);
-      if (updatedTerritories[0]) {
-        setSelectedTerritoryId(updatedTerritories[0].id);
-      }
       setMapImportMsg(
         `✅ Mapas de ejemplo cargados (${updatedTerritories.length} territorios, ${parsedBlocks.length} manzanas y ${ruralAndAlertPoints.length} casas rurales). Podrás reemplazarlos en cualquier momento desde el panel Admin.`
       );
@@ -278,9 +277,6 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
     };
     const nextList = [...conductors, newCond];
     setConductors(nextList);
-    if (!selectedConductorId) {
-      setSelectedConductorId(newCond.id);
-    }
     setCondNameInput('');
     setCondPinInput('');
     setCondIsAdmin(false);
@@ -288,31 +284,52 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
   };
 
   // Agregar primera salida en Paso 4
-  const handleAddFirstSlot = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cond =
-      conductors.find((c) => c.id === selectedConductorId) || conductors[0];
-    if (!cond || !meetingPointName.trim()) return;
-
-    const terrId = selectedTerritoryId || territories[0]?.id || 'terr-1';
+  const appendWizardSlot = () => {
+    if (!slotDate.trim() || !time.trim()) return;
+    const cond = conductors.find((c) => c.id === selectedConductorId);
+    const derivedDay = dayOfWeekFromDate(slotDate);
+    const cleanMeetingName = meetingPointName.trim();
+    const cleanMeetingUrl = meetingPointUrl.trim();
     const newSlot: ScheduleSlot = {
       id: `sched-${Date.now()}`,
-      dayName,
-      date: new Date().toISOString().slice(0, 10),
+      dayName: derivedDay,
+      dayOfWeek: derivedDay,
+      date: slotDate,
       time,
-      conductorId: cond.id,
-      conductorName: cond.name,
-      meetingPointName: meetingPointName.trim(),
+      conductorId: cond?.id || '',
+      conductorName: cond?.name || '',
+      conductorIds: cond ? [cond.id] : [],
+      conductorNames: cond ? [cond.name] : [],
+      meetingPointName: cleanMeetingName,
       meetingPointUrl:
-        meetingPointUrl.trim() ||
-        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-          meetingPointName.trim()
-        )}`,
-      territoryIds: [terrId],
+        cleanMeetingUrl ||
+        (cleanMeetingName
+          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+              cleanMeetingName
+            )}`
+          : ''),
+      territoryIds: selectedTerritoryId ? [selectedTerritoryId] : [],
     };
     setSchedule([...schedule, newSlot]);
+    setSelectedConductorId('');
     setMeetingPointName('');
     setMeetingPointUrl('');
+    setSelectedTerritoryId('');
+    setWizardMissingWarning(null);
+  };
+
+  const handleAddFirstSlot = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!slotDate.trim() || !time.trim()) return;
+    const cond = conductors.find((c) => c.id === selectedConductorId);
+    const missing: Array<'encargado' | 'ubicacion'> = [];
+    if (!cond) missing.push('encargado');
+    if (!meetingPointName.trim()) missing.push('ubicacion');
+    if (missing.length > 0) {
+      setWizardMissingWarning(missing);
+      return;
+    }
+    appendWizardSlot();
   };
 
   // Finalizar el Asistente y dejar la aplicación en vivo
@@ -940,107 +957,155 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                 </p>
               </div>
 
-              {conductors.length > 0 && territories.length > 0 && (
-                <form
-                  onSubmit={handleAddFirstSlot}
-                  className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3"
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                        Día y Turno:
-                      </label>
-                      <input
-                        type="text"
-                        value={dayName}
-                        onChange={(e) => setDayName(e.target.value)}
-                        placeholder="Ej. Sábado Mañana"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                        Hora:
-                      </label>
-                      <input
-                        type="time"
-                        value={time}
-                        onChange={(e) => setTime(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                        Conductor:
-                      </label>
+              <form
+                onSubmit={handleAddFirstSlot}
+                className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      Fecha <span className="text-red-600">*</span>:
+                    </label>
+                    <input
+                      type="date"
+                      value={slotDate}
+                      onChange={(e) => setSlotDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      Hora <span className="text-red-600">*</span>:
+                    </label>
+                    <input
+                      type="time"
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      Conductor <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
+                    </label>
+                    <select
+                      value={selectedConductorId}
+                      onChange={(e) => {
+                        setSelectedConductorId(e.target.value);
+                        setWizardMissingWarning(null);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
+                    >
+                      <option value="">Sin asignar (opcional)</option>
+                      {conductors.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      Ubicación <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
+                    </label>
+                    <input
+                      type="text"
+                      value={meetingPointName}
+                      onChange={(e) => {
+                        setMeetingPointName(e.target.value);
+                        setWizardMissingWarning(null);
+                      }}
+                      placeholder="Ej. Salón del Reino (opcional)"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      Link Google Maps (Opcional):
+                    </label>
+                    <input
+                      type="text"
+                      value={meetingPointUrl}
+                      onChange={(e) => setMeetingPointUrl(e.target.value)}
+                      placeholder="https://maps.app.goo.gl/..."
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
+                      Territorio (Opcional):
+                    </label>
+                    <div className="flex gap-2">
                       <select
-                        value={selectedConductorId || conductors[0]?.id || ''}
-                        onChange={(e) => setSelectedConductorId(e.target.value)}
+                        value={selectedTerritoryId}
+                        onChange={(e) =>
+                          setSelectedTerritoryId(e.target.value)
+                        }
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
                       >
-                        {conductors.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
+                        <option value="">Sin territorio (opcional)</option>
+                        {territories.map((t: Territory) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
                           </option>
                         ))}
                       </select>
+                      <button
+                        type="submit"
+                        className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-black text-xs rounded-xl shrink-0 inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Añadir
+                      </button>
                     </div>
                   </div>
+                </div>
+              </form>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                        Punto de Encuentro:
-                      </label>
-                      <input
-                        type="text"
-                        value={meetingPointName}
-                        onChange={(e) => setMeetingPointName(e.target.value)}
-                        placeholder="Ej. Salón del Reino"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-semibold"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                        Link Google Maps (Opcional):
-                      </label>
-                      <input
-                        type="text"
-                        value={meetingPointUrl}
-                        onChange={(e) => setMeetingPointUrl(e.target.value)}
-                        placeholder="https://maps.app.goo.gl/..."
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                        Territorio:
-                      </label>
-                      <div className="flex gap-2">
-                        <select
-                          value={selectedTerritoryId || territories[0]?.id || ''}
-                          onChange={(e) =>
-                            setSelectedTerritoryId(e.target.value)
-                          }
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold"
-                        >
-                          {territories.map((t: Territory) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="submit"
-                          className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-black text-xs rounded-xl shrink-0 inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4" />
-                          Añadir
-                        </button>
+              {wizardMissingWarning && (
+                <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-start gap-2.5 text-amber-950">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1 text-xs sm:text-sm">
+                      <div className="font-black">
+                        Faltan datos opcionales en la salida:
                       </div>
+                      {wizardMissingWarning.includes('encargado') && (
+                        <div>
+                          • <strong>Encargado:</strong> quedó sin elegir y se mostrará como{' '}
+                          <em>"Por asignar"</em>.
+                        </div>
+                      )}
+                      {wizardMissingWarning.includes('ubicacion') && (
+                        <div>
+                          • <strong>Ubicación:</strong> quedó vacía y se mostrará como{' '}
+                          <em>"Por asignar"</em>.
+                        </div>
+                      )}
                     </div>
                   </div>
-                </form>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={appendWizardSlot}
+                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs cursor-pointer"
+                    >
+                      Agregar de todas formas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWizardMissingWarning(null)}
+                      className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-xs cursor-pointer"
+                    >
+                      Volver y completar
+                    </button>
+                  </div>
+                </div>
               )}
 
               {schedule.length > 0 && (
@@ -1055,8 +1120,9 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                     >
                       <span className="font-bold text-slate-900">
                         <CheckCircle2 className="w-4 h-4 inline text-emerald-600 mr-1.5" />
-                        {s.dayName} ({s.time} hs) — {s.conductorName} • 📍{' '}
-                        {s.meetingPointName}
+                        {s.dayOfWeek || s.dayName} ({s.date} — {s.time} hs) —{' '}
+                        {s.conductorName || 'Por asignar'} • 📍{' '}
+                        {s.meetingPointName || 'Por asignar'}
                       </span>
                     </div>
                   ))}

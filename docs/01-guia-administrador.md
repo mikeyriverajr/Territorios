@@ -49,19 +49,19 @@ Cuando la aplicación se abre por primera vez en un dispositivo sin datos config
 Esta es la pantalla principal de trabajo semanal. Se divide en dos columnas:
 
 ### A. Crear y Editar Salidas del Programa Semanal
-En el formulario **Nueva Salida** (o **✏️ Editar Salida**):
-1. **Fecha y Día de la semana:** Al elegir la **Fecha** en el calendario, el campo **Día** (`Lunes` a `Domingo`) se actualiza automáticamente. Si cambia el **Día**, la fecha salta a la próxima ocurrencia de ese día.
-2. **Turno y Hora:** Elija *Mañana*, *Tarde*, *Noche* o *(Sin turno)* y especifique la hora (ej. `09:30`).
-3. **Encargado (Conductor):** Seleccione al conductor de la lista.
-4. **Ubicación y Punto de Encuentro (Link Maps):**
-   - Seleccione una ubicación de la lista desplegable (ej. *Salón del Reino*, *Arroyo Porã*).
+En el formulario **Nueva Salida** (o **✏️ Editar Salida**), los únicos campos obligatorios son **Fecha** y **Hora** (los demás son opcionales):
+1. **Fecha y Día de la semana (Fecha obligatoria):** Al elegir la **Fecha** en el calendario, el campo **Día** (`Lunes` a `Domingo`) se actualiza automáticamente. Si cambia el **Día**, la fecha salta a la próxima ocurrencia de ese día.
+2. **Hora (obligatoria):** Especifique la hora de la salida (ej. `09:30`).
+3. **Encargado(s) (opcional):** Seleccione uno o más conductores de la lista. Si lo deja vacío, recibirá una advertencia antes de publicar y la salida figurará como *"Por asignar"*.
+4. **Ubicación y Punto de Encuentro (Link Maps, opcionales):**
+   - Seleccione una ubicación de la lista desplegable (ej. *Salón del Reino*, *Arroyo Porã*) o déjelo sin ubicación (en cuyo caso recibirá una advertencia antes de publicar y aparecerá como *"Por asignar"*).
    - Pulse **`✏️ Personalizar`** para abrir el **Gestor de Ubicaciones Personalizadas**: allí puede agregar nuevos puntos frecuentes (nombre + link de Google Maps) o eliminar los que ya no use. Al elegir una ubicación guardada, su enlace de Google Maps se rellena automáticamente.
-   - Si deja el enlace de Maps vacío, el sistema genera automáticamente un enlace de búsqueda en Google Maps con el nombre del punto de encuentro.
-5. **Territorio(s):**
-   - Puede agregar **uno o varios territorios** a una misma salida usando el desplegable `+ Agregar territorio...`.
+   - Si indica una ubicación pero deja el enlace de Maps vacío, el sistema genera automáticamente un enlace de búsqueda en Google Maps con el nombre del punto de encuentro.
+5. **Territorio(s) (opcional):**
+   - Puede agregar **uno o varios territorios** a una misma salida usando el desplegable `+ Agregar territorio...`, o dejarlo sin territorios por el momento.
    - El selector muestra la última fecha en que se trabajó cada territorio y si actualmente está asignado a algún hermano.
-   - **Alerta de conflicto:** Si selecciona un territorio que ya figura asignado a otro hermano, el sistema mostrará un aviso pidiendo confirmación antes de reasignarlo al conductor de la salida.
-6. **Notas para el conductor:** Campo opcional para indicaciones prácticas (ej. *"Hacer primero las casas No en casa de la manzana 1A"*).
+   - **Alerta de conflicto:** Si selecciona un territorio que ya figura asignado a otro hermano (y eligió al menos un encargado), el sistema mostrará un aviso pidiendo confirmación antes de agregarlo o reasignarlo al conductor de la salida.
+6. **Notas para el conductor (opcional):** Campo para indicaciones prácticas (ej. *"Hacer primero las casas No en casa de la manzana 1A"*).
 
 ### B. Acciones sobre el Programa Semanal Publicado
 Debajo del formulario verá todas las salidas ordenadas cronológicamente:
@@ -100,7 +100,7 @@ Puede editar libremente el **Título** y el **Mensaje** de cada plantilla usando
 | Variable | Qué inserta automáticamente |
 | :--- | :--- |
 | `{conductor}` | Nombre del conductor asignado a la salida |
-| `{dia}` | Día / turno de la salida (ej. `Sábado Mañana`) |
+| `{dia}` | Día de la salida (ej. `Sábado`) |
 | `{hora}` | Hora de la salida (ej. `09:30`) |
 | `{punto_encuentro}` | Nombre del punto de encuentro |
 | `{territorio}` | Nombre(s) de los territorios de la salida |

@@ -92,17 +92,17 @@ export interface Territory {
 
 export interface ScheduleSlot {
   id: string;
-  dayName: string;        // Ej. "Martes", "Sábado Mañana"
+  dayName: string;        // Ej. "Martes", "Sábado"
   dayOfWeek?: string;     // Ej. "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"
-  date: string;           // YYYY-MM-DD
-  time: string;           // Ej. "09:30"
-  conductorId: string;    // ID del conductor principal asignado
-  conductorName: string;  // Nombre del conductor principal
+  date: string;           // YYYY-MM-DD (obligatorio)
+  time: string;           // Ej. "09:30" (obligatorio)
+  conductorId: string;    // ID del conductor principal asignado (o '' si aún no se asigna)
+  conductorName: string;  // Nombre del conductor principal (o '' si aún no se asigna)
   conductorIds?: string[];    // IDs de todos los conductores asignados a esta salida
   conductorNames?: string[];  // Nombres de todos los conductores asignados a esta salida
-  meetingPointName: string; // Ej. "Plaza Primera Junta"
-  meetingPointUrl: string;  // Link de Google Maps del punto de encuentro
-  territoryIds: string[]; // Territorios asignados para esta salida
+  meetingPointName: string; // Ej. "Plaza Primera Junta" (o '' si aún no se asigna)
+  meetingPointUrl: string;  // Link de Google Maps del punto de encuentro (o '' si no se asigna)
+  territoryIds: string[]; // Territorios asignados para esta salida (puede estar vacío)
   notes?: string;
 }
 

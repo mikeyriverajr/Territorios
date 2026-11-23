@@ -35,7 +35,7 @@ Al ingresar, verá la pantalla **"Tus Asignaciones"**, donde se agrupan en tarje
    - Aparecen en cuadros amarillos destacados arriba de sus asignaciones (por ejemplo, recordatorios antes de la salida o alertas de direcciones `NO VISITAR`).
    - Cuando los lea, pulse **`Entendido`** para archivarlos.
 2. **Salidas del Programa Semanal:**
-   - Muestran la fecha, el día y turno (ej. `Sábado Mañana — 09:30 hs`), el nombre del territorio asignado, el **Punto de Encuentro** con un botón directo **`Maps`** para abrir la ubicación en Google Maps, el contador de manzanas completadas, casas `No en casa`, alertas `NO VISITAR` y notas del administrador.
+   - Muestran la fecha, el día y la hora (ej. `Sábado — 09:30 hs`), el nombre del territorio asignado, el **Punto de Encuentro** con un botón directo **`Maps`** para abrir la ubicación en Google Maps, el contador de manzanas completadas, casas `No en casa`, alertas `NO VISITAR` y notas del administrador.
 3. **Territorios Personales:**
    - Si el Siervo de Territorios le asignó un territorio directamente (sin una salida semanal específica), aparecerá aquí con la etiqueta **`Territorio Personal`**, su fecha de asignación y notas.
 

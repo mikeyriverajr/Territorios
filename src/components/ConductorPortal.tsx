@@ -142,14 +142,17 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
       };
 
   const unifiedAssignments: UnifiedAssignment[] = [
-    ...myAssignedSlots.map((slot) => ({
-      kind: 'slot' as const,
-      key: `slot-${slot.id}`,
-      slot,
-      itemTerritories: territories.filter((t) =>
-        slot.territoryIds.includes(t.id)
-      ),
-    })),
+    ...myAssignedSlots.map((slot) => {
+      const slotTerrIds = Array.isArray(slot.territoryIds)
+        ? slot.territoryIds
+        : [];
+      return {
+        kind: 'slot' as const,
+        key: `slot-${slot.id}`,
+        slot,
+        itemTerritories: territories.filter((t) => slotTerrIds.includes(t.id)),
+      };
+    }),
     ...standalonePersonalTerritories.map((territory) => ({
       kind: 'personal' as const,
       key: `personal-${territory.id}`,
@@ -299,7 +302,7 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
               : personalTerr?.assignmentNotes;
             const territoryTitle =
               item.itemTerritories.map((t) => t.name).join(', ') ||
-              'Territorio asignado';
+              (isSlot ? 'Sin territorio asignado' : 'Territorio asignado');
             const isAllCompleted =
               item.itemTerritories.length > 0 &&
               item.itemTerritories.every((t) => t.status === 'completado');
@@ -314,19 +317,22 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
               ])
             ).filter((name) => Boolean(name) && name !== conductor.name);
 
+            const slotDayLabel = slot ? slot.dayOfWeek || slot.dayName : '';
             const publisherLinkUrl =
               isSlot && slot
-                ? getPublisherGroupLink(slot.id)
+                ? item.itemTerritories.length > 0
+                  ? getPublisherGroupLink(slot.id)
+                  : ''
                 : personalTerr
                 ? getPublisherTerritoryLink(personalTerr.id)
                 : '';
             const publisherShareTitle =
               isSlot && slot
-                ? `Grupo de Predicación — ${slot.dayName}`
+                ? `Grupo de Predicación — ${slotDayLabel}`
                 : `Territorio Personal — ${territoryTitle}`;
             const publisherShareText =
               isSlot && slot
-                ? `Link para anotar casas "No en casa" hoy (${slot.dayName} ${slot.time} hs):`
+                ? `Link para anotar casas "No en casa" hoy (${slotDayLabel} ${slot.time} hs):`
                 : `Link para anotar casas "No en casa" en ${territoryTitle}:`;
 
             return (
@@ -345,7 +351,7 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                     {isSlot && slot ? (
                       <span className="inline-flex items-center gap-1.5 bg-slate-900 text-white font-black px-3.5 py-1.5 rounded-xl text-sm sm:text-base shadow-xs">
                         <Clock className="w-4 h-4 text-amber-300 shrink-0" />
-                        {slot.dayName} — {slot.time} hs
+                        {slotDayLabel} — {slot.time} hs
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 bg-slate-900 text-white font-black px-3.5 py-1.5 rounded-xl text-sm sm:text-base shadow-xs">
@@ -400,8 +406,14 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                         <div className="flex items-center justify-between gap-3">
                           <div className="font-black text-sm sm:text-base text-slate-900 flex items-start gap-1.5 min-w-0">
                             <MapPin className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                            <span className="truncate">
-                              {slot.meetingPointName}
+                            <span
+                              className={`truncate ${
+                                slot.meetingPointName?.trim()
+                                  ? ''
+                                  : 'text-amber-700 italic font-bold'
+                              }`}
+                            >
+                              {slot.meetingPointName?.trim() || 'Por asignar'}
                             </span>
                           </div>
                           {slot.meetingPointUrl && (
@@ -424,25 +436,31 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
                       <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">
                         Falta por hacer
                       </div>
-                      <div className="flex flex-wrap gap-2 text-xs font-bold">
-                        {itemBlocks.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            Manzanas: {completedBlocks.length}/
-                            {itemBlocks.length}
+                      {isSlot && item.itemTerritories.length === 0 ? (
+                        <div className="text-xs font-semibold text-slate-500">
+                          Aún no se asignó un territorio para esta salida.
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-2 text-xs font-bold">
+                          {itemBlocks.length > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-900 border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Manzanas: {completedBlocks.length}/
+                              {itemBlocks.length}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-300">
+                            <Home className="w-3.5 h-3.5 text-amber-600" />
+                            No en casa: {pendingNotAtHome.length}
                           </span>
-                        )}
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-300">
-                          <Home className="w-3.5 h-3.5 text-amber-600" />
-                          No en casa: {pendingNotAtHome.length}
-                        </span>
-                        {noVisitarList.length > 0 && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-900 border border-red-300 font-extrabold">
-                            <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
-                            NO VISITAR: {noVisitarList.length}
-                          </span>
-                        )}
-                      </div>
+                          {noVisitarList.length > 0 && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-900 border border-red-300 font-extrabold">
+                              <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                              NO VISITAR: {noVisitarList.length}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -495,17 +513,23 @@ export const ConductorPortal: React.FC<ConductorPortalProps> = ({
 
                   {/* BOTÓN PRINCIPAL */}
                   <button
+                    disabled={isSlot && item.itemTerritories.length === 0}
                     onClick={() => {
                       if (isSlot && slot) {
+                        if (item.itemTerritories.length === 0) return;
                         onOpenSlotMap(slot);
                       } else if (personalTerr) {
                         onOpenTerritoryMap(personalTerr.id);
                       }
                     }}
-                    className="w-full py-4 px-5 bg-blue-700 hover:bg-blue-800 text-white font-black text-base sm:text-lg rounded-2xl shadow-md flex items-center justify-center gap-2.5 cursor-pointer transition"
+                    className="w-full py-4 px-5 bg-blue-700 hover:bg-blue-800 disabled:bg-slate-300 disabled:text-slate-600 disabled:cursor-not-allowed text-white font-black text-base sm:text-lg rounded-2xl shadow-md flex items-center justify-center gap-2.5 cursor-pointer transition"
                   >
                     <MapPin className="w-6 h-6 text-amber-300 shrink-0" />
-                    <span>ABRIR EL MAPA</span>
+                    <span>
+                      {isSlot && item.itemTerritories.length === 0
+                        ? 'Sin territorio asignado'
+                        : 'ABRIR EL MAPA'}
+                    </span>
                   </button>
                 </div>
               </div>

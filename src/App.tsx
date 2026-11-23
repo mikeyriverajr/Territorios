@@ -739,11 +739,10 @@ export const App: React.FC = () => {
             housePoints={db.housePoints}
             pushNotifications={db.pushNotifications}
             onOpenSlotMap={(slot) => {
+              if (!slot.territoryIds || slot.territoryIds.length === 0) return;
               setIsGeneralMapOpen(false);
               setActiveSlotForMap(slot);
-              setMapOpenForTerritoryId(
-                slot.territoryIds[0] || db.territories[0]?.id || 'terr-1'
-              );
+              setMapOpenForTerritoryId(slot.territoryIds[0]);
             }}
             onOpenTerritoryMap={(territoryId) => {
               setIsGeneralMapOpen(false);
@@ -864,7 +863,8 @@ export const App: React.FC = () => {
                   ...prev,
                   schedule: [...prev.schedule, newSlot],
                   territories: prev.territories.map((t) => {
-                    if (!slotTerritorySet.has(t.id)) return t;
+                    if (!slotTerritorySet.has(t.id) || slotAssignees.length === 0)
+                      return t;
                     const mode = assignmentModes?.[t.id] || 'add';
                     const existing = getTerritoryAssignees(t);
                     const nextAssignees =
@@ -902,7 +902,8 @@ export const App: React.FC = () => {
                     s.id === updatedSlot.id ? updatedSlot : s
                   ),
                   territories: prev.territories.map((t) => {
-                    if (!slotTerritorySet.has(t.id)) return t;
+                    if (!slotTerritorySet.has(t.id) || slotAssignees.length === 0)
+                      return t;
                     const mode = assignmentModes?.[t.id] || 'add';
                     const existing = getTerritoryAssignees(t);
                     const nextAssignees =
@@ -953,14 +954,12 @@ export const App: React.FC = () => {
                   housePoints: prev.housePoints.filter(
                     (hp) => hp.territoryId !== territoryId
                   ),
-                  schedule: (prev.schedule || [])
-                    .map((s) => ({
-                      ...s,
-                      territoryIds: (s.territoryIds || []).filter(
-                        (id) => id !== territoryId
-                      ),
-                    }))
-                    .filter((s) => s.territoryIds.length > 0),
+                  schedule: (prev.schedule || []).map((s) => ({
+                    ...s,
+                    territoryIds: (s.territoryIds || []).filter(
+                      (id) => id !== territoryId
+                    ),
+                  })),
                 })
               );
             }}
