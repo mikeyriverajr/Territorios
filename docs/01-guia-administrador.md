@@ -146,16 +146,17 @@ Cada tarjeta muestra:
 
 ## 5. Pestaña: Editor de Mapas
 
-Herramienta visual para crear o corregir límites de **Territorios** y **Manzanas** sin necesidad de volver a Google My Maps:
+Herramienta visual para dibujar o corregir límites de **Territorios** y **Manzanas** directamente sobre el mapa satelital o de calles:
 
-- **Selector de Objetivo:** Alterne entre **`🗺️ Editar Territorio`** y **`🧱 Editar Manzana`**.
-- **Crear nuevos elementos:** Pulse **`+ Nuevo Territorio`** o **`+ Nueva Manzana`** en la barra superior negra para generar un polígono inicial en el centro del mapa y ajustarlo arrastrando sus esquinas.
-- **Editar propiedades:** Cambie el número de territorio, código de manzana (ej. `1A`, `2B`), nombre completo, tipo (`Urbano`, `Rural`, `Mixto`) o territorio padre al que pertenece una manzana.
-- **3 Herramientas de Vértices sobre el Mapa:**
-  - `✋ Mover / +`: Arrastre los círculos numerados amarillos (`1, 2, 3...`) para mover esquinas existentes, o toque los circulitos azules con `+` entre dos vértices para insertar una esquina intermedia.
-  - `➕ Tocar y Añadir`: Toque cualquier punto del mapa satelital para agregar una esquina nueva al segmento más cercano del polígono.
-  - `🗑️ Quitar Esquina`: Muestra los vértices en rojo; toque cualquiera para eliminarlo (el sistema conserva siempre un mínimo de 3 esquinas para mantener el polígono cerrado).
-- **Guardar o Deshacer:** Pulse **`Guardar Cambios de Nombre y Bordes`** para persistir las modificaciones en la nube, o **`Deshacer`** / **`Eliminar`** si desea revertir o borrar el elemento.
+- **Dibujar tocando en el mapa:** Pulse **`+ Dibujar Territorio`** o **`+ Dibujar Manzana`** en la barra superior (o **`+ Dibujar Manzana`** desde cualquier territorio en la pestaña *Territorios y S-13*) y haga clic o toque cada esquina en el mapa. Al tener 3 o más puntos, toque el círculo verde **`1`** (o haga doble clic / pulse `Enter`) para cerrar la figura.
+- **Creación rápida en cadena:** Al dibujar un territorio puede usar **`Guardar y dibujar manzanas`** para pasar de inmediato a su primera manzana (`1A`, `2A`, etc.); al dibujar manzanas puede usar **`Guardar y dibujar otra manzana`** para seguir con la siguiente (`1B`, `1C`...) con numeración automática.
+- **Panel jerárquico Territorio → Manzanas:** El panel izquierdo muestra siempre el territorio activo junto con la lista completa de sus manzanas para cambiar entre ellas, acercar el mapa o eliminar manzanas con un clic. También puede insertar una caja rápida de 4 esquinas con **`+ Caja`**.
+- **Edición precisa de bordes y propiedades:**
+  - Cambie número de territorio, código de manzana (`1A`, `2B`...), nombre, descripción, tipo (`Urbano`, `Rural`, `Mixto`) o territorio padre (con sugerencia automática de código al mover una manzana).
+  - Arrastre las esquinas amarillas (`1, 2, 3...`), toque o **arrastre los circulitos azules (`+`)** para crear una esquina intermedia en un solo gesto, haga **clic derecho** en una esquina para quitarla o use **`🔄 Redibujar borde desde cero`**.
+  - **Imán a esquinas vecinas (`🧲 Imán`):** Ajusta automáticamente el trazo a vértices de territorios y manzanas contiguas (mantenga `Alt` para pausarlo momentáneamente).
+  - **Casas de referencia (`🏠 Casas`):** Muestra u oculta los pines de casas registradas en el territorio para evitar dividir una cuadra por error.
+- **Integridad de datos y atajos:** Soporta `Ctrl+Z` / `Ctrl+Y` para deshacer/rehacer y `Backspace` mientras dibuja. Al renombrar una manzana se actualizan las referencias de sus casas, y al eliminar una manzana **se conservan todas las casas y direcciones `NO VISITAR`** dentro del territorio.
 
 ---
 

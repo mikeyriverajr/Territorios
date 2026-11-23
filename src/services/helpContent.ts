@@ -243,16 +243,17 @@ export const HELP_ARTICLES: HelpArticle[] = [
   {
     id: 'admin-editor-y-respaldo',
     categoryId: 'admin',
-    title: 'Cambiar bordes en el Editor de Mapas y guardar copia de seguridad',
+    title: 'Dibujar territorios, agregar manzanas y guardar copia de seguridad',
     roleBadge: 'Encargado',
     summary:
-      'Puedes ajustar los límites de cada territorio o manzana y guardar una copia de todos tus datos.',
+      'Puedes dibujar territorios y manzanas tocando en el mapa, editar bordes existentes con imán a esquinas vecinas y guardar una copia de todos tus datos.',
     steps: [
-      'En "Editor de Mapas": elige un territorio o manzana, arrastra los puntos amarillos para mover esquinas o usa "+ Añadir" y "Quitar". Luego toca "Guardar Cambios".',
-      'En "Ajustes -> Copia de Seguridad": de vez en cuando toca "Descargar Copia de Seguridad" y guarda ese archivo en tu teléfono o correo. Si algún día cambias de celular, con "Restaurar Copia" recuperas todo.',
-      'En "Ajustes" también puedes cargar o exportar mapas de Google My Maps.',
+      'En "Editor de Mapas", toca "+ Dibujar Territorio" o "+ Dibujar Manzana" para marcar las esquinas directamente sobre el mapa satelital (toca el círculo verde 1 o haz doble clic para cerrar; usa "Guardar y dibujar otra manzana" para crear varias seguidas).',
+      'Para editar una manzana o territorio existente, selecciónalo en la lista (o tócalo en el mapa), arrastra las esquinas amarillas, toca o arrastra los círculos azules (+) para crear nuevas esquinas, o haz clic derecho en una esquina para quitarla.',
+      'El modo "Imán" ajusta automáticamente las esquinas nuevas a vértices vecinos (manten Alt para desactivarlo temporalmente) y al eliminar una manzana se conservan todas las casas y direcciones "NO VISITAR" del territorio.',
+      'En "Ajustes -> Copia de Seguridad": descarga periódicamente el respaldo .json y gestiona las importaciones/exportaciones de Google My Maps.',
     ],
-    keywords: ['editor', 'mapas', 'bordes', 'respaldo', 'copia', 'ajustes'],
+    keywords: ['editor', 'mapas', 'bordes', 'dibujar', 'manzana', 'respaldo', 'copia', 'ajustes'],
   },
 
   // ================= DUDAS COMUNES =================

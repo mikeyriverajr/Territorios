@@ -19,6 +19,7 @@ import {
   appendSyncAction,
   completeAndReturnTerritory,
   fetchCloudDatabase,
+  findBlockForCoordinates,
   generateHouseShortCode,
   getSlotConductors,
   getTerritoryAssignees,
@@ -30,6 +31,7 @@ import {
   saveDatabase,
   syncTerritoryAssigneeFields,
 } from './services/storageAndSync';
+import { isPointInPolygon } from './services/kmlImporter';
 import { StartupWizard } from './components/StartupWizard';
 import { LoginView } from './components/LoginView';
 import { ConductorPortal } from './components/ConductorPortal';
@@ -921,61 +923,140 @@ export const App: React.FC = () => {
               );
             }}
             onSaveTerritory={(updatedTerr) => {
-              setDb(
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  territories: db.territories.map((t) =>
+                  ...prev,
+                  territories: prev.territories.map((t) =>
                     t.id === updatedTerr.id ? updatedTerr : t
                   ),
                 })
               );
             }}
             onCreateTerritory={(newTerr) => {
-              setDb(
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  territories: [...db.territories, newTerr],
+                  ...prev,
+                  territories: [...prev.territories, newTerr],
                 })
               );
             }}
             onDeleteTerritory={(territoryId) => {
-              setDb(
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  territories: db.territories.filter((t) => t.id !== territoryId),
-                  blocks: db.blocks.filter((b) => b.territoryId !== territoryId),
-                  housePoints: db.housePoints.filter(
+                  ...prev,
+                  territories: prev.territories.filter(
+                    (t) => t.id !== territoryId
+                  ),
+                  blocks: prev.blocks.filter(
+                    (b) => b.territoryId !== territoryId
+                  ),
+                  housePoints: prev.housePoints.filter(
                     (hp) => hp.territoryId !== territoryId
                   ),
+                  schedule: (prev.schedule || [])
+                    .map((s) => ({
+                      ...s,
+                      territoryIds: (s.territoryIds || []).filter(
+                        (id) => id !== territoryId
+                      ),
+                    }))
+                    .filter((s) => s.territoryIds.length > 0),
                 })
               );
             }}
             onSaveBlock={(updatedBlock) => {
-              setDb(
-                saveDatabase({
-                  ...db,
-                  blocks: db.blocks.map((b) =>
+              setDb((prev) => {
+                const oldBlock = prev.blocks.find(
+                  (b) => b.id === updatedBlock.id
+                );
+                const oldPrefix = oldBlock
+                  ? `${oldBlock.code.toUpperCase()}-`
+                  : '';
+                const nextPrefix = `${updatedBlock.code.toUpperCase()}-`;
+                const codeChanged = Boolean(
+                  oldBlock && oldBlock.code !== updatedBlock.code
+                );
+
+                return saveDatabase({
+                  ...prev,
+                  blocks: prev.blocks.map((b) =>
                     b.id === updatedBlock.id ? updatedBlock : b
                   ),
-                })
-              );
+                  housePoints: prev.housePoints.map((hp) => {
+                    if (hp.blockId !== updatedBlock.id) return hp;
+                    let nextShortCode = hp.shortCode;
+                    if (
+                      codeChanged &&
+                      hp.shortCode &&
+                      oldPrefix &&
+                      hp.shortCode.toUpperCase().startsWith(oldPrefix)
+                    ) {
+                      nextShortCode = `${nextPrefix}${hp.shortCode.slice(
+                        oldPrefix.length
+                      )}`;
+                    }
+                    return {
+                      ...hp,
+                      territoryId: updatedBlock.territoryId,
+                      blockCode: updatedBlock.code,
+                      shortCode: nextShortCode,
+                    };
+                  }),
+                });
+              });
             }}
             onCreateBlock={(newBlock) => {
-              setDb(
+              setDb((prev) =>
                 saveDatabase({
-                  ...db,
-                  blocks: [...db.blocks, newBlock],
+                  ...prev,
+                  blocks: [...prev.blocks, newBlock],
+                  housePoints: prev.housePoints.map((hp) => {
+                    if (
+                      hp.territoryId === newBlock.territoryId &&
+                      !hp.blockId &&
+                      isPointInPolygon([hp.lat, hp.lng], newBlock.polygon)
+                    ) {
+                      return {
+                        ...hp,
+                        blockId: newBlock.id,
+                        blockCode: newBlock.code,
+                      };
+                    }
+                    return hp;
+                  }),
                 })
               );
             }}
             onDeleteBlock={(blockId) => {
-              setDb(
-                saveDatabase({
-                  ...db,
-                  blocks: db.blocks.filter((b) => b.id !== blockId),
-                  housePoints: db.housePoints.filter((hp) => hp.blockId !== blockId),
-                })
-              );
+              setDb((prev) => {
+                const remainingBlocks = prev.blocks.filter(
+                  (b) => b.id !== blockId
+                );
+                return saveDatabase({
+                  ...prev,
+                  blocks: remainingBlocks,
+                  housePoints: prev.housePoints.map((hp) => {
+                    if (hp.blockId !== blockId) return hp;
+                    const fallback = findBlockForCoordinates(
+                      remainingBlocks,
+                      hp.territoryId,
+                      [hp.lat, hp.lng]
+                    );
+                    if (fallback) {
+                      return {
+                        ...hp,
+                        blockId: fallback.id,
+                        blockCode: fallback.code,
+                      };
+                    }
+                    return {
+                      ...hp,
+                      blockId: undefined,
+                      blockCode: undefined,
+                    };
+                  }),
+                });
+              });
             }}
             onUpdateNotificationTemplate={(updated: PushNotificationTemplate) => {
               setDb(

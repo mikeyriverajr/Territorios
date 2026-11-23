@@ -21,6 +21,7 @@ import {
   Territory,
 } from '../types/territory';
 import { getPolygonCentroid, isPointInPolygon } from '../services/kmlImporter';
+import { compareBlockCodes } from '../services/mapGeometry';
 import {
   findBlockForCoordinates,
   getSlotConductorLabel,
@@ -89,7 +90,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     () =>
       blocks
         .filter((b) => b.territoryId === activeTerritory?.id)
-        .sort((a, b) => a.code.localeCompare(b.code)),
+        .sort((a, b) => compareBlockCodes(a.code, b.code)),
     [blocks, activeTerritory]
   );
 
@@ -366,15 +367,19 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
       });
 
       const centroid = getPolygonCentroid(b.polygon);
+      const safeCode = b.code
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       const labelIcon = L.divIcon({
         className: 'custom-block-label',
-        html: `<div style="background:${
+        html: `<div style="transform:translate(-50%,-50%);white-space:nowrap;display:inline-flex;align-items:center;gap:3px;background:${
           isDone ? 'rgba(5,150,105,0.9)' : 'rgba(30,64,175,0.9)'
         };color:#fff;padding:2px 7px;border-radius:999px;font-weight:900;font-size:11px;border:1.5px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,0.5);">
-          ${b.code}${isDone ? ' ✓' : ''}
+          ${safeCode}${isDone ? ' ✓' : ''}
         </div>`,
-        iconSize: [42, 20],
-        iconAnchor: [21, 10],
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
       });
       L.marker(centroid, { icon: labelIcon, interactive: false }).addTo(group);
     });

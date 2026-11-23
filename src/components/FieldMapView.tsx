@@ -27,6 +27,7 @@ import {
   Territory,
 } from '../types/territory';
 import { getPolygonCentroid } from '../services/kmlImporter';
+import { compareBlockCodes } from '../services/mapGeometry';
 import {
   findBlockForCoordinates,
   getSlotConductorLabel,
@@ -154,7 +155,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     () =>
       blocks
         .filter((b) => b.territoryId === activeTerritory?.id)
-        .sort((a, b) => a.code.localeCompare(b.code)),
+        .sort((a, b) => compareBlockCodes(a.code, b.code)),
     [blocks, activeTerritory]
   );
 
@@ -461,14 +462,18 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
           ? 'background:#d97706;color:#fff;border:2px solid #fffbeb;'
           : 'background:#1e40af;color:#fff;border:2px solid #eff6ff;';
 
+      const safeBlockCode = block.code
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       const blockLabelIcon = L.divIcon({
         className: 'custom-block-label',
-        html: `<div style="${badgeBg}padding:3px 9px;border-radius:999px;font-weight:900;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.35);white-space:nowrap;display:inline-flex;align-items:center;gap:4px;">
-          <span>${block.code}</span>
+        html: `<div style="transform:translate(-50%,-50%);${badgeBg}padding:3px 9px;border-radius:999px;font-weight:900;font-size:13px;box-shadow:0 2px 6px rgba(0,0,0,0.35);white-space:nowrap;display:inline-flex;align-items:center;gap:4px;">
+          <span>${safeBlockCode}</span>
           ${block.status === 'completada' ? '<span>✓</span>' : ''}
         </div>`,
-        iconSize: [52, 26],
-        iconAnchor: [26, 13],
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
       });
 
       L.marker(centroid, { icon: blockLabelIcon, interactive: false }).addTo(

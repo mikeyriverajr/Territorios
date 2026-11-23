@@ -77,8 +77,9 @@ import {
   getAvailableServiceYears,
   getCurrentServiceYear,
 } from '../services/s13PdfGenerator';
-import { MapEditorView } from './MapEditorView';
+import { MapEditorFocusRequest, MapEditorView } from './MapEditorView';
 import { HelpCenterModal } from './HelpCenterModal';
+import { compareBlockCodes } from '../services/mapGeometry';
 
 const DAYS_OF_WEEK = [
   'Domingo',
@@ -284,7 +285,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'number' | 'oldest_worked' | 'recent_completed' | 'status' | 'assignee'
   >('number');
   const [territorySearchQuery, setTerritorySearchQuery] = useState<string>('');
+  const [editorFocusRequest, setEditorFocusRequest] =
+    useState<MapEditorFocusRequest | null>(null);
   const hasEnvSupabase = getEnvCloudConfig().enabled;
+
+  const openMapEditor = (
+    territoryId?: string,
+    action: 'edit_territory' | 'draw_block' | 'draw_territory' = 'edit_territory'
+  ) => {
+    setEditorFocusRequest({
+      territoryId,
+      action,
+      nonce: Date.now(),
+    });
+    setActiveTab('editor');
+  };
 
   const handleExportGoogleMapsKml = (
     targetTerritories: Territory[],
@@ -1108,7 +1123,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setEditorFocusRequest(null);
+                setActiveTab(tab.key);
+              }}
               className={`flex-1 min-w-[125px] py-2.5 px-3 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1.5 text-center leading-tight cursor-pointer transition ${
                 activeTab === tab.key
                   ? 'bg-blue-700 text-white shadow-xs'
@@ -2113,6 +2131,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => openMapEditor(undefined, 'draw_territory')}
+                    className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Dibujar Territorio</span>
+                  </button>
+
                   <div className="relative flex-1 sm:flex-initial sm:w-64">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
@@ -2269,11 +2296,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {paginatedTerritoriesForTab.map((t) => {
                       const tBlocks = db.blocks
                         .filter((b) => b.territoryId === t.id)
-                        .sort((a, b) =>
-                          a.code.localeCompare(b.code, undefined, {
-                            numeric: true,
-                          })
-                        );
+                        .sort((a, b) => compareBlockCodes(a.code, b.code));
                       const doneBlocks = tBlocks.filter(
                         (b) => b.status === 'completada'
                       );
@@ -2535,6 +2558,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               🗺️ Abrir en Mapa
                             </button>
 
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openMapEditor(t.id, 'edit_territory')
+                              }
+                              className="flex-1 min-w-[130px] py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs cursor-pointer"
+                            >
+                              ✏️ Editar bordes
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => openMapEditor(t.id, 'draw_block')}
+                              className="flex-1 min-w-[145px] py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer"
+                            >
+                              + Dibujar Manzana
+                            </button>
+
                             {t.status !== 'completado' && (
                               <button
                                 type="button"
@@ -2655,6 +2696,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   className="px-2.5 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs cursor-pointer"
                                 >
                                   Mapa
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openMapEditor(t.id, 'edit_territory')
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs cursor-pointer"
+                                >
+                                  Editar
                                 </button>
 
                                 {t.status === 'completado' && (
@@ -2929,6 +2980,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <MapEditorView
           territories={db.territories}
           blocks={db.blocks}
+          housePoints={db.housePoints}
+          focusRequest={editorFocusRequest}
           onSaveTerritory={onSaveTerritory}
           onCreateTerritory={onCreateTerritory}
           onDeleteTerritory={onDeleteTerritory}

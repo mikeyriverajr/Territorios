@@ -8,7 +8,9 @@
 .custom-google-maps-gps,
 .custom-overview-label,
 .custom-editor-vertex,
-.custom-editor-midpoint {
+.custom-editor-midpoint,
+.custom-editor-snap-ring,
+.custom-editor-house-dot {
   background: transparent !important;
   border: none !important;
 }
