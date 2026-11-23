@@ -53,10 +53,10 @@ En el formulario **Nueva Salida** (o **✏️ Editar Salida**), los únicos camp
 1. **Fecha y Día de la semana (Fecha obligatoria):** Al elegir la **Fecha** en el calendario, el campo **Día** (`Lunes` a `Domingo`) se actualiza automáticamente. Si cambia el **Día**, la fecha salta a la próxima ocurrencia de ese día.
 2. **Hora (obligatoria):** Especifique la hora de la salida (ej. `09:30`).
 3. **Encargado(s) (opcional):** Seleccione uno o más conductores de la lista. Si lo deja vacío, recibirá una advertencia antes de publicar y la salida figurará como *"Por asignar"*.
-4. **Ubicación y Punto de Encuentro (Link Maps, opcionales):**
-   - Seleccione una ubicación de la lista desplegable (ej. *Salón del Reino*, *Arroyo Porã*) o déjelo sin ubicación (en cuyo caso recibirá una advertencia antes de publicar y aparecerá como *"Por asignar"*).
-   - Pulse **`✏️ Personalizar`** para abrir el **Gestor de Ubicaciones Personalizadas**: allí puede agregar nuevos puntos frecuentes (nombre + link de Google Maps) o eliminar los que ya no use. Al elegir una ubicación guardada, su enlace de Google Maps se rellena automáticamente.
-   - Si indica una ubicación pero deja el enlace de Maps vacío, el sistema genera automáticamente un enlace de búsqueda en Google Maps con el nombre del punto de encuentro.
+4. **Localidad y Punto de Encuentro (Link Maps, opcionales):**
+   - Seleccione una localidad de la lista desplegable (ej. *Salón del Reino*, *Arroyo Porã*) o déjelo sin localidad (en cuyo caso recibirá una advertencia antes de publicar y aparecerá como *"Por asignar"*).
+   - Pulse **`✏️ Personalizar`** para abrir el **Gestor de Localidades Personalizadas**: allí puede agregar nuevos puntos frecuentes (nombre + link de Google Maps) o eliminar los que ya no use. Al elegir una localidad guardada, su enlace de Google Maps se rellena automáticamente.
+   - Si indica una localidad pero deja el enlace de Maps vacío, el sistema genera automáticamente un enlace de búsqueda en Google Maps con el nombre del punto de encuentro.
 5. **Territorio(s) (opcional):**
    - Puede agregar **uno o varios territorios** a una misma salida usando el desplegable `+ Agregar territorio...`, o dejarlo sin territorios por el momento.
    - El selector muestra la última fecha en que se trabajó cada territorio y si actualmente está asignado a algún hermano.
@@ -66,7 +66,7 @@ En el formulario **Nueva Salida** (o **✏️ Editar Salida**), los únicos camp
 ### B. Acciones sobre el Programa Semanal Publicado
 Debajo del formulario verá todas las salidas ordenadas cronológicamente:
 - **En cada salida individual:**
-  - `Copiar`: Copia al portapapeles el bloque de texto con formato y emoticonos listo para WhatsApp (`🔹 Día - Hora hs`, `👤 Encargado`, `📍 Ubicación`, `🗺️ Punto de Encuentro`).
+  - `Copiar`: Copia al portapapeles el bloque de texto con formato y emoticonos listo para WhatsApp (`🔹 Día - Hora hs`, `👤 Encargado`, `🗺️ Localidad`, `📍 Punto de Encuentro`).
   - `WhatsApp`: Copia y abre directamente WhatsApp con el mensaje de esa salida.
   - `Duplicar`: Clona esa salida en el formulario sumando automáticamente **+7 días** a la fecha, lista para ajustar o publicar la semana siguiente.
   - `Editar`: Carga los datos de la salida en el formulario superior para modificarla.

@@ -72,10 +72,10 @@ export function formatScheduleSlotMessage(slot: ScheduleSlot): string {
   const lines = [
     `🔹 ${dayLabel} - ${time} hs`,
     `👤 Encargado: ${conductor}`,
-    `📍 Ubicación: ${location}`,
+    `🗺️ Localidad: ${location}`,
   ];
   if (url) {
-    lines.push(`🗺️ Punto de Encuentro: ${url}`);
+    lines.push(`📍 Punto de Encuentro: ${url}`);
   }
   return lines.join('\n');
 }

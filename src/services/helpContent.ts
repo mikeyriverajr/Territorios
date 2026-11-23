@@ -219,12 +219,12 @@ export const HELP_ARTICLES: HelpArticle[] = [
       'Crea las salidas de la semana y copia el mensaje ya ordenado con emoticonos para enviarlo al grupo.',
     steps: [
       'En la pestaña "Programa y Conductores", ingresa la Fecha y la Hora (los únicos campos obligatorios).',
-      'Opcionalmente, elige uno o varios encargados, la ubicación / punto de encuentro y uno o más territorios. Si dejas Encargado o Ubicación vacíos, verás una advertencia previa antes de publicar por si deseas completarlos o continuar igual.',
+      'Opcionalmente, elige uno o varios encargados, la localidad / punto de encuentro y uno o más territorios. Si dejas Encargado o Localidad vacíos, verás una advertencia previa antes de publicar por si deseas completarlos o continuar igual.',
       'Si el territorio ya lo tiene otra persona y elegiste un encargado, la pantalla te preguntará si deseas agregar al nuevo hermano junto con el actual o reemplazarlo.',
       'Toca "Publicar Salida". Cuando termines de cargar la semana, toca "Copiar Mensaje" o "Abrir en WhatsApp" para enviarlo al grupo.',
       'A la derecha de esa misma pantalla puedes agregar nuevos conductores, ver su PIN si se lo olvidaron o dar permisos de Encargado a otro hermano.',
     ],
-    keywords: ['programa', 'salida', 'whatsapp', 'conductores', 'pin', 'varios', 'compartir'],
+    keywords: ['programa', 'salida', 'whatsapp', 'conductores', 'pin', 'varios', 'compartir', 'localidad'],
   },
   {
     id: 'admin-territorios-reiniciar-s13',

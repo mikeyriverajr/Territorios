@@ -1130,7 +1130,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Modal de advertencia previa cuando Encargado y/o Ubicación quedan vacíos */}
+      {/* Modal de advertencia previa cuando Encargado y/o Localidad quedan vacíos */}
       {missingFieldsWarningModal && (
         <div
           className="fixed inset-0 z-[2100] bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4"
@@ -1170,7 +1170,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               )}
               {missingFieldsWarningModal.missingFields.includes('ubicacion') && (
                 <div>
-                  📍 <strong>Ubicación:</strong> quedó vacía y se mostrará como{' '}
+                  🗺️ <strong>Localidad:</strong> quedó vacía y se mostrará como{' '}
                   <em>"Por asignar"</em>.
                 </div>
               )}
@@ -1392,7 +1392,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="min-w-0">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <label className="block text-xs font-extrabold uppercase text-slate-600">
-                      Ubicación <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
+                      Localidad <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
                     </label>
                     <button
                       type="button"
@@ -1426,7 +1426,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="w-full min-w-0 h-[42px] px-3 rounded-xl border border-slate-300 font-bold text-sm bg-white"
                   >
                     <option value="">
-                      Sin ubicación (opcional)...
+                      Sin localidad (opcional)...
                     </option>
                     {customLocations.map((loc) => (
                       <option key={loc.id} value={loc.name}>
@@ -1461,7 +1461,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {showLocationManager && (
                 <div className="bg-slate-50 border border-blue-200 rounded-2xl p-3.5 space-y-3">
                   <div className="text-xs font-black uppercase text-blue-900">
-                    Lista Personalizable de Ubicaciones ({customLocations.length})
+                    Lista Personalizable de Localidades ({customLocations.length})
                   </div>
 
                   {customLocations.length > 0 && (
@@ -1485,7 +1485,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               }
                             }}
                             className="w-5 h-5 rounded hover:bg-red-100 text-red-600 flex items-center justify-center cursor-pointer font-black"
-                            title="Eliminar ubicación"
+                            title="Eliminar localidad"
                           >
                             ×
                           </button>
@@ -1754,7 +1754,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             )}
                           </div>
                           <div>
-                            📍 <strong>Ubicación:</strong>{' '}
+                            🗺️ <strong>Localidad:</strong>{' '}
                             {slot.meetingPointName?.trim() || (
                               <span className="text-amber-700 italic">Por asignar</span>
                             )}
@@ -1762,7 +1762,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           {slot.meetingPointUrl && (
                             <div className="text-[11px] text-blue-700 flex items-baseline gap-1 min-w-0">
                               <span className="shrink-0">
-                                🗺️ <strong>Punto de Encuentro:</strong>
+                                📍 <strong>Punto de Encuentro:</strong>
                               </span>
                               <a
                                 href={slot.meetingPointUrl}

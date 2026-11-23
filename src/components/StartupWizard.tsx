@@ -1011,7 +1011,7 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs font-extrabold uppercase text-slate-600 mb-1">
-                      Ubicación <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
+                      Localidad <span className="text-[10px] font-semibold lowercase text-slate-400">(opcional)</span>:
                     </label>
                     <input
                       type="text"
@@ -1083,7 +1083,7 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({
                       )}
                       {wizardMissingWarning.includes('ubicacion') && (
                         <div>
-                          • <strong>Ubicación:</strong> quedó vacía y se mostrará como{' '}
+                          • <strong>Localidad:</strong> quedó vacía y se mostrará como{' '}
                           <em>"Por asignar"</em>.
                         </div>
                       )}
