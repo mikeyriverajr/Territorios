@@ -21,8 +21,11 @@ import {
   fetchCloudDatabase,
   findBlockForCoordinates,
   generateHouseShortCode,
+  getLocalSaveVersion,
   getSlotConductors,
   getTerritoryAssignees,
+  hasPendingCloudPush,
+  isCloudNewerThanLocal,
   isTerritoryAssignedTo,
   loadDatabase,
   markWholeTerritoryCompleted,
@@ -165,11 +168,19 @@ export const App: React.FC = () => {
 
     const syncFromCloud = async () => {
       try {
+        if (hasPendingCloudPush()) return;
+        const versionBefore = getLocalSaveVersion();
         const cloudDb = await fetchCloudDatabase();
         if (!active) return;
+        if (getLocalSaveVersion() !== versionBefore || hasPendingCloudPush()) {
+          return;
+        }
         if (cloudDb && cloudDb.isConfigured) {
           setDb((prev) => {
-            if (cloudDb.lastUpdated !== prev.lastUpdated) {
+            if (!prev.isConfigured) {
+              return cloudDb;
+            }
+            if (isCloudNewerThanLocal(cloudDb.lastUpdated, prev.lastUpdated)) {
               return cloudDb;
             }
             return prev;
@@ -238,64 +249,66 @@ export const App: React.FC = () => {
     },
     recordedByRole: 'publicador' | 'conductor' | 'admin'
   ) => {
-    const now = new Date().toISOString();
-    const safeCategory: HousePointCategory =
-      recordedByRole === 'publicador' ? 'no_en_casa' : pointData.category;
-    const isPermanent = safeCategory === 'no_visitar';
+    setDb((prev) => {
+      const now = new Date().toISOString();
+      const safeCategory: HousePointCategory =
+        recordedByRole === 'publicador' ? 'no_en_casa' : pointData.category;
+      const isPermanent = safeCategory === 'no_visitar';
 
-    const { seqNumber, shortCode } = generateHouseShortCode(
-      db,
-      pointData.territoryId,
-      pointData.blockCode,
-      safeCategory
-    );
+      const { seqNumber, shortCode } = generateHouseShortCode(
+        prev,
+        pointData.territoryId,
+        pointData.blockCode,
+        safeCategory
+      );
 
-    const newPoint: HousePoint = {
-      id: `hp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      territoryId: pointData.territoryId,
-      blockId: pointData.blockId,
-      blockCode: pointData.blockCode,
-      lat: pointData.lat,
-      lng: pointData.lng,
-      category: safeCategory,
-      status: isPermanent ? 'permanente' : 'no_en_casa',
-      label: pointData.label?.trim() ? pointData.label : `#${shortCode}`,
-      notes: pointData.notes,
-      seqNumber,
-      shortCode,
-      recordedByRole,
-      createdAt: now,
-      updatedAt: now,
-      attempts: isPermanent
-        ? []
-        : [{ date: now.slice(0, 10), outcome: 'no_en_casa' }],
-    };
-
-    let nextDb: AppDatabase = {
-      ...db,
-      housePoints: [newPoint, ...db.housePoints],
-    };
-
-    if (pointData.blockId) {
-      nextDb = {
-        ...nextDb,
-        blocks: nextDb.blocks.map((b) =>
-          b.id === pointData.blockId && b.status === 'pendiente'
-            ? {
-                ...b,
-                status: 'en_progreso',
-                lastWorkedAt: now.slice(0, 10),
-              }
-            : b
-        ),
+      const newPoint: HousePoint = {
+        id: `hp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        territoryId: pointData.territoryId,
+        blockId: pointData.blockId,
+        blockCode: pointData.blockCode,
+        lat: pointData.lat,
+        lng: pointData.lng,
+        category: safeCategory,
+        status: isPermanent ? 'permanente' : 'no_en_casa',
+        label: pointData.label?.trim() ? pointData.label : `#${shortCode}`,
+        notes: pointData.notes,
+        seqNumber,
+        shortCode,
+        recordedByRole,
+        createdAt: now,
+        updatedAt: now,
+        attempts: isPermanent
+          ? []
+          : [{ date: now.slice(0, 10), outcome: 'no_en_casa' }],
       };
-    }
 
-    nextDb = appendSyncAction(
-      nextDb,
-      `Registró ${safeCategory} (${pointData.label})`
-    );
-    setDb(saveDatabase(nextDb));
+      let nextDb: AppDatabase = {
+        ...prev,
+        housePoints: [newPoint, ...prev.housePoints],
+      };
+
+      if (pointData.blockId) {
+        nextDb = {
+          ...nextDb,
+          blocks: nextDb.blocks.map((b) =>
+            b.id === pointData.blockId && b.status === 'pendiente'
+              ? {
+                  ...b,
+                  status: 'en_progreso',
+                  lastWorkedAt: now.slice(0, 10),
+                }
+              : b
+          ),
+        };
+      }
+
+      nextDb = appendSyncAction(
+        nextDb,
+        `Registró ${safeCategory} (${pointData.label})`
+      );
+      return saveDatabase(nextDb);
+    });
   };
 
   const handleUpdateHouseStatus = (
@@ -303,47 +316,51 @@ export const App: React.FC = () => {
     newStatus: HousePointStatus,
     note?: string
   ) => {
-    const targetPoint = db.housePoints.find((p) => p.id === pointId);
-    if (!targetPoint) return;
+    setDb((prev) => {
+      const targetPoint = prev.housePoints.find((p) => p.id === pointId);
+      if (!targetPoint) return prev;
 
-    const now = new Date().toISOString();
-    const updatedPoints = db.housePoints.map((p) => {
-      if (p.id !== pointId) return p;
-      return {
-        ...p,
-        status: newStatus,
-        updatedAt: now,
-        attempts: [
-          ...p.attempts,
-          {
-            date: now.slice(0, 10),
-            outcome: (newStatus === 'atendido' ? 'atendido' : 'no_en_casa') as
-              | 'atendido'
-              | 'no_en_casa',
-            note,
-          },
-        ],
+      const now = new Date().toISOString();
+      const updatedPoints = prev.housePoints.map((p) => {
+        if (p.id !== pointId) return p;
+        return {
+          ...p,
+          status: newStatus,
+          updatedAt: now,
+          attempts: [
+            ...p.attempts,
+            {
+              date: now.slice(0, 10),
+              outcome: (newStatus === 'atendido' ? 'atendido' : 'no_en_casa') as
+                | 'atendido'
+                | 'no_en_casa',
+              note,
+            },
+          ],
+        };
+      });
+
+      let nextDb: AppDatabase = {
+        ...prev,
+        housePoints: updatedPoints,
       };
+
+      nextDb = appendSyncAction(
+        nextDb,
+        `Actualizó casa "${targetPoint.label}" a ${newStatus}`
+      );
+      return saveDatabase(nextDb);
     });
-
-    let nextDb: AppDatabase = {
-      ...db,
-      housePoints: updatedPoints,
-    };
-
-    nextDb = appendSyncAction(
-      nextDb,
-      `Actualizó casa "${targetPoint.label}" a ${newStatus}`
-    );
-    setDb(saveDatabase(nextDb));
   };
 
   const handleDeleteHousePoint = (pointId: string) => {
-    const nextDb: AppDatabase = {
-      ...db,
-      housePoints: db.housePoints.filter((p) => p.id !== pointId),
-    };
-    setDb(saveDatabase(nextDb));
+    setDb((prev) => {
+      const nextDb: AppDatabase = {
+        ...prev,
+        housePoints: prev.housePoints.filter((p) => p.id !== pointId),
+      };
+      return saveDatabase(nextDb);
+    });
   };
 
   const handleUpdateBlockStatus = (
@@ -351,39 +368,41 @@ export const App: React.FC = () => {
     status: BlockStatus,
     conductorName?: string
   ) => {
-    const targetBlock = db.blocks.find((b) => b.id === blockId);
-    if (!targetBlock) return;
+    setDb((prev) => {
+      const targetBlock = prev.blocks.find((b) => b.id === blockId);
+      if (!targetBlock) return prev;
 
-    const todayStr = new Date().toISOString().slice(0, 10);
-    let nextDb: AppDatabase = {
-      ...db,
-      blocks: db.blocks.map((b) => {
-        if (b.id !== blockId) return b;
-        if (status === 'completada') {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      let nextDb: AppDatabase = {
+        ...prev,
+        blocks: prev.blocks.map((b) => {
+          if (b.id !== blockId) return b;
+          if (status === 'completada') {
+            return {
+              ...b,
+              status,
+              lastWorkedAt: todayStr,
+              completedAt: todayStr,
+              lastCompletedAt: todayStr,
+              lastConductor: conductorName || b.lastConductor,
+            };
+          }
           return {
             ...b,
             status,
-            lastWorkedAt: todayStr,
-            completedAt: todayStr,
-            lastCompletedAt: todayStr,
+            completedAt: undefined,
+            lastCompletedAt: b.completedAt || b.lastCompletedAt || b.lastWorkedAt,
             lastConductor: conductorName || b.lastConductor,
           };
-        }
-        return {
-          ...b,
-          status,
-          completedAt: undefined,
-          lastCompletedAt: b.completedAt || b.lastCompletedAt || b.lastWorkedAt,
-          lastConductor: conductorName || b.lastConductor,
-        };
-      }),
-    };
+        }),
+      };
 
-    nextDb = appendSyncAction(
-      nextDb,
-      `Marcó Manzana ${targetBlock.code} como ${status}`
-    );
-    setDb(saveDatabase(nextDb));
+      nextDb = appendSyncAction(
+        nextDb,
+        `Marcó Manzana ${targetBlock.code} como ${status}`
+      );
+      return saveDatabase(nextDb);
+    });
   };
 
   const handleUpdateTerritoryAssignees = (
@@ -407,32 +426,33 @@ export const App: React.FC = () => {
     territoryId: string,
     conductorName?: string
   ) => {
-    const nextDb = markWholeTerritoryCompleted(
-      db,
-      territoryId,
-      conductorName || loggedConductor?.name || 'Administrador'
+    setDb((prev) =>
+      markWholeTerritoryCompleted(
+        prev,
+        territoryId,
+        conductorName || loggedConductor?.name || 'Administrador'
+      )
     );
-    setDb(nextDb);
   };
 
   const handleResetTerritory = (
     territoryId: string,
     conductorName?: string
   ) => {
-    const nextDb = resetTerritoryForNewCycle(db, territoryId, conductorName);
-    setDb(nextDb);
+    setDb((prev) => resetTerritoryForNewCycle(prev, territoryId, conductorName));
   };
 
   const handleCompleteAndReturnTerritory = (
     territoryId: string,
     conductorName?: string
   ) => {
-    const nextDb = completeAndReturnTerritory(
-      db,
-      territoryId,
-      conductorName || loggedConductor?.name || 'Conductor'
+    setDb((prev) =>
+      completeAndReturnTerritory(
+        prev,
+        territoryId,
+        conductorName || loggedConductor?.name || 'Conductor'
+      )
     );
-    setDb(nextDb);
     setMapOpenForTerritoryId(null);
     setActiveSlotForMap(null);
   };

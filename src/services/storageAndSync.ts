@@ -708,10 +708,75 @@ export async function pushDatabaseToSupabase(
   }
 }
 
+let latestPendingPushDb: AppDatabase | null = null;
+let isPushingToCloud = false;
+let lastLocalSaveVersion = 0;
+let lastLocalSaveTimeMs = 0;
+
+export function getLocalSaveVersion(): number {
+  return lastLocalSaveVersion;
+}
+
+export function hasPendingCloudPush(): boolean {
+  return isPushingToCloud || latestPendingPushDb !== null;
+}
+
+export function isCloudNewerThanLocal(
+  cloudLastUpdated?: string,
+  localLastUpdated?: string
+): boolean {
+  const cloudMs = Date.parse(cloudLastUpdated || '');
+  if (Number.isNaN(cloudMs)) return false;
+  const localMs = Date.parse(localLastUpdated || '');
+  if (Number.isNaN(localMs)) return true;
+  return cloudMs > localMs;
+}
+
+async function flushCloudPushQueue(): Promise<void> {
+  if (isPushingToCloud || typeof window === 'undefined') return;
+  isPushingToCloud = true;
+  try {
+    while (latestPendingPushDb) {
+      const nextToPush = latestPendingPushDb;
+      latestPendingPushDb = null;
+      const supa = loadCloudConfig();
+      if (supa.enabled && supa.supabaseUrl && supa.supabaseAnonKey) {
+        await pushDatabaseToSupabase(nextToPush, supa).catch(() => {});
+      } else {
+        await fetch('/api/cloud-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(nextToPush),
+        }).catch(() => {});
+      }
+    }
+  } finally {
+    isPushingToCloud = false;
+  }
+}
+
+function enqueueCloudPush(dbToPush: AppDatabase): void {
+  if (typeof window === 'undefined') return;
+  latestPendingPushDb = dbToPush;
+  if (!isPushingToCloud) {
+    void flushCloudPushQueue();
+  }
+}
+
 export function saveDatabase(db: AppDatabase): AppDatabase {
+  const nowMs = Date.now();
+  const prevMs = Date.parse(db.lastUpdated || '');
+  const nextMs = Math.max(
+    nowMs,
+    Number.isNaN(prevMs) ? 0 : prevMs + 1,
+    lastLocalSaveTimeMs + 1
+  );
+  lastLocalSaveTimeMs = nextMs;
+  lastLocalSaveVersion += 1;
+
   const updated: AppDatabase = {
     ...db,
-    lastUpdated: new Date().toISOString(),
+    lastUpdated: new Date(nextMs).toISOString(),
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -719,25 +784,36 @@ export function saveDatabase(db: AppDatabase): AppDatabase {
     console.error('Error guardando en almacenamiento local:', e);
   }
 
-  if (typeof window !== 'undefined') {
-    const supa = loadCloudConfig();
-    if (supa.enabled && supa.supabaseUrl && supa.supabaseAnonKey) {
-      // 1. Sincronizar con Supabase (almacenamiento en la nube principal)
-      pushDatabaseToSupabase(updated, supa).catch(() => {});
-    } else {
-      // 2. Respaldo local con servidor Node integrado (/api/cloud-state) si existe
-      fetch('/api/cloud-state', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
-      }).catch(() => {});
-    }
-  }
+  enqueueCloudPush(updated);
 
   return updated;
 }
 
 export async function fetchCloudDatabase(): Promise<AppDatabase | null> {
+  if (hasPendingCloudPush()) {
+    return null;
+  }
+  const versionAtStart = lastLocalSaveVersion;
+
+  const acceptRemoteDb = (remoteDb: AppDatabase): AppDatabase | null => {
+    if (lastLocalSaveVersion !== versionAtStart || hasPendingCloudPush()) {
+      return null;
+    }
+    const localDb = loadDatabase();
+    if (
+      localDb.isConfigured &&
+      !isCloudNewerThanLocal(remoteDb.lastUpdated, localDb.lastUpdated)
+    ) {
+      return null;
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteDb));
+    } catch (e) {
+      console.error('Error actualizando almacenamiento local:', e);
+    }
+    return remoteDb;
+  };
+
   try {
     // 1. Si hay Supabase activo (por variables de entorno o ajuste manual), consultar ahí
     const supa = loadCloudConfig();
@@ -761,8 +837,7 @@ export async function fetchCloudDatabase(): Promise<AppDatabase | null> {
         const rows = await res.json();
         if (Array.isArray(rows) && rows[0]?.payload) {
           const remoteDb = sanitizeDatabase(rows[0].payload as AppDatabase);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteDb));
-          return remoteDb;
+          return acceptRemoteDb(remoteDb);
         }
       }
       return null;
@@ -774,8 +849,7 @@ export async function fetchCloudDatabase(): Promise<AppDatabase | null> {
     const data = (await res.json()) as AppDatabase | null;
     if (data && data.isConfigured) {
       const sanitized = sanitizeDatabase(data);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-      return sanitized;
+      return acceptRemoteDb(sanitized);
     }
     return null;
   } catch {

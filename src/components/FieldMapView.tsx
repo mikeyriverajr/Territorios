@@ -42,6 +42,12 @@ import {
   getPublisherTerritoryLink,
   openWhatsAppShare,
 } from '../services/notificationHelper';
+import { useLiveGps } from '../hooks/useLiveGps';
+import {
+  GpsLayerHandle,
+  removeGpsMarkerFromMap,
+  syncGpsMarkerOnMap,
+} from '../services/gpsMarker';
 
 interface FieldMapViewProps {
   territories: Territory[];
@@ -181,7 +187,14 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
   const [isChangingBlock, setIsChangingBlock] = useState<boolean>(false);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
 
-  const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
+  const {
+    coords: userGps,
+    heading: userHeading,
+    accuracy: userAccuracy,
+    startTracking: startGpsTracking,
+    requestCompassPermission,
+    setManualCoords: setUserGpsManual,
+  } = useLiveGps({ autoStart: true });
   const [gpsStatusText, setGpsStatusText] = useState<string>('');
   const [copiedPubLink, setCopiedPubLink] = useState<boolean>(false);
 
@@ -201,6 +214,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const currentTileStyleRef = useRef<'calles' | 'satelite' | null>(null);
   const overlaysGroupRef = useRef<L.LayerGroup | null>(null);
+  const gpsLayerRef = useRef<GpsLayerHandle | null>(null);
 
   const hasActiveTerritory = Boolean(activeTerritory);
 
@@ -270,6 +284,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
     return () => {
       cancelAnimationFrame(rafId);
       resizeObserver?.disconnect();
+      removeGpsMarkerFromMap(map, gpsLayerRef);
       map.remove();
       mapInstanceRef.current = null;
       tileLayerRef.current = null;
@@ -517,30 +532,62 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       });
     });
 
-    if (userGps) {
-      const gpsIcon = L.divIcon({
-        className: 'custom-gps-dot',
-        html: `<div style="width:22px;height:22px;border-radius:999px;background:#2563eb;border:3px solid #ffffff;box-shadow:0 0 0 6px rgba(37,99,235,0.32),0 2px 6px rgba(0,0,0,0.4);"></div>`,
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
-      });
-      L.marker(userGps, { icon: gpsIcon })
-        .bindTooltip('📍 Tu ubicación GPS actual', { direction: 'top' })
-        .addTo(group);
-    }
   }, [
     activeTerritory,
     territories,
     territoryBlocks,
     territoryPoints,
     selectedPointId,
-    userGps,
   ]);
+
+  // Marcador GPS dedicado (se mueve y rota en vivo sin redibujar polígonos)
+  useEffect(() => {
+    syncGpsMarkerOnMap(
+      mapInstanceRef.current,
+      gpsLayerRef,
+      userGps,
+      userHeading,
+      userAccuracy,
+      '📍 Tu ubicación GPS actual'
+    );
+  }, [userGps, userHeading, userAccuracy, hasActiveTerritory]);
 
   const handleLocateMeGps = (
     openAddDialogAfter = false,
     defaultCategory: 'no_en_casa' | 'no_visitar' = 'no_en_casa'
   ) => {
+    startGpsTracking();
+
+    const applyCoords = (coords: LatLngTuple) => {
+      setGpsStatusText('📍 Ubicación GPS en vivo activa');
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView(coords, 17);
+      }
+      if (openAddDialogAfter && activeTerritory) {
+        const matchedBlock = findBlockForCoordinates(
+          blocks,
+          activeTerritory.id,
+          coords
+        );
+        setNewPointDraft({
+          lat: coords[0],
+          lng: coords[1],
+          blockId: matchedBlock?.id,
+          blockCode: matchedBlock?.code,
+          category: defaultCategory,
+          houseNumber: '',
+          selectedChips: [],
+          notes: '',
+        });
+      }
+      setTimeout(() => setGpsStatusText(''), 3500);
+    };
+
+    if (userGps) {
+      applyCoords(userGps);
+      return;
+    }
+
     if (!('geolocation' in navigator)) {
       handleSimulateGpsInTerritory(openAddDialogAfter, defaultCategory);
       return;
@@ -553,34 +600,13 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
           pos.coords.latitude,
           pos.coords.longitude,
         ];
-        setUserGps(coords);
-        setGpsStatusText('📍 Ubicación GPS actualizada');
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.setView(coords, 17);
-        }
-        if (openAddDialogAfter && activeTerritory) {
-          const matchedBlock = findBlockForCoordinates(
-            blocks,
-            activeTerritory.id,
-            coords
-          );
-          setNewPointDraft({
-            lat: coords[0],
-            lng: coords[1],
-            blockId: matchedBlock?.id,
-            blockCode: matchedBlock?.code,
-            category: defaultCategory,
-            houseNumber: '',
-            selectedChips: [],
-            notes: '',
-          });
-        }
-        setTimeout(() => setGpsStatusText(''), 3500);
+        setUserGpsManual(coords);
+        applyCoords(coords);
       },
       () => {
         handleSimulateGpsInTerritory(openAddDialogAfter, defaultCategory);
       },
-      { enableHighAccuracy: true, timeout: 5000 }
+      { enableHighAccuracy: true, timeout: 8000 }
     );
   };
 
@@ -605,7 +631,7 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
       Number((baseCenter[1] + offsetLng).toFixed(6)),
     ];
 
-    setUserGps(simulatedCoords);
+    setUserGpsManual(simulatedCoords);
     const matchedBlock = findBlockForCoordinates(
       blocks,
       activeTerritory.id,
@@ -841,7 +867,10 @@ export const FieldMapView: React.FC<FieldMapViewProps> = ({
             </div>
 
             <button
-              onClick={() => setShowInitialBriefing(false)}
+              onClick={() => {
+                void requestCompassPermission();
+                setShowInitialBriefing(false);
+              }}
               className="w-full py-4 bg-blue-700 hover:bg-blue-800 text-white font-black text-base sm:text-lg rounded-xl shadow-md cursor-pointer transition"
             >
               Entendido — Abrir Mapa del Territorio

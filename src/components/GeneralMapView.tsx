@@ -13,6 +13,12 @@ import {
 import { Block, LatLngTuple, Territory } from '../types/territory';
 import { getPolygonCentroid, isPointInPolygon } from '../services/kmlImporter';
 import { getTerritoryAssignees } from '../services/storageAndSync';
+import { useLiveGps } from '../hooks/useLiveGps';
+import {
+  GpsLayerHandle,
+  removeGpsMarkerFromMap,
+  syncGpsMarkerOnMap,
+} from '../services/gpsMarker';
 
 interface GeneralMapViewProps {
   territories: Territory[];
@@ -60,7 +66,6 @@ export const GeneralMapView: React.FC<GeneralMapViewProps> = ({
     null
   );
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
   const [gpsActive, setGpsActive] = useState<boolean>(false);
   const [gpsMessage, setGpsMessage] = useState<string>('');
 
@@ -69,7 +74,43 @@ export const GeneralMapView: React.FC<GeneralMapViewProps> = ({
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const currentTileStyleRef = useRef<'satelite' | 'calles' | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
-  const gpsWatchIdRef = useRef<number | null>(null);
+  const gpsLayerRef = useRef<GpsLayerHandle | null>(null);
+
+  const {
+    coords: userGps,
+    heading: userHeading,
+    accuracy: userAccuracy,
+    error: gpsError,
+    startTracking: startGpsTracking,
+  } = useLiveGps({
+    autoStart: false,
+    onFirstFix: (coords) => {
+      setGpsMessage('');
+      if (mapRef.current) {
+        mapRef.current.setView(coords, 16);
+      }
+    },
+  });
+
+  useEffect(() => {
+    if (userGps) {
+      setGpsMessage('');
+    }
+  }, [userGps]);
+
+  useEffect(() => {
+    if (!gpsError) return;
+    setGpsActive(false);
+    if (gpsError.code === gpsError.PERMISSION_DENIED) {
+      setGpsMessage(
+        'Permiso de ubicación denegado. Activa el GPS y permite la ubicación en tu navegador.'
+      );
+    } else {
+      setGpsMessage(
+        'No se pudo obtener tu señal GPS. Verifica que la ubicación del teléfono esté activada.'
+      );
+    }
+  }, [gpsError]);
 
   const sortedTerritories = useMemo(
     () => [...territories].sort((a, b) => a.number - b.number),
@@ -184,10 +225,7 @@ export const GeneralMapView: React.FC<GeneralMapViewProps> = ({
     return () => {
       cancelAnimationFrame(rafId);
       resizeObserver?.disconnect();
-      if (gpsWatchIdRef.current !== null && 'geolocation' in navigator) {
-        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
-        gpsWatchIdRef.current = null;
-      }
+      removeGpsMarkerFromMap(map, gpsLayerRef);
       map.remove();
       mapRef.current = null;
       tileLayerRef.current = null;
@@ -282,21 +320,19 @@ export const GeneralMapView: React.FC<GeneralMapViewProps> = ({
       });
     });
 
-    if (userGps) {
-      const gpsIcon = L.divIcon({
-        className: 'custom-google-maps-gps',
-        html: `<div style="position:relative;width:44px;height:44px;pointer-events:none;">
-          <div style="position:absolute;top:8px;left:8px;width:28px;height:28px;border-radius:9999px;background:rgba(37,99,235,0.3);animation:ping 2s cubic-bezier(0,0,0.2,1) infinite;"></div>
-          <div style="position:absolute;top:14px;left:14px;width:16px;height:16px;border-radius:9999px;background:#2563eb;border:3px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.5);"></div>
-        </div>`,
-        iconSize: [44, 44],
-        iconAnchor: [22, 22],
-      });
-      L.marker(userGps, { icon: gpsIcon, zIndexOffset: 1000 })
-        .bindTooltip('Tu ubicación GPS actual', { direction: 'top' })
-        .addTo(group);
-    }
-  }, [sortedTerritories, territoryColorMap, selectedTerritoryId, userGps]);
+  }, [sortedTerritories, territoryColorMap, selectedTerritoryId]);
+
+  // Marcador GPS en vivo con haz de dirección (sin redibujar territorios)
+  useEffect(() => {
+    syncGpsMarkerOnMap(
+      mapRef.current,
+      gpsLayerRef,
+      userGps,
+      userHeading,
+      userAccuracy,
+      'Tu ubicación GPS actual'
+    );
+  }, [userGps, userHeading, userAccuracy]);
 
   const handleActivateGps = () => {
     if (typeof window === 'undefined' || !('geolocation' in navigator)) {
@@ -304,45 +340,15 @@ export const GeneralMapView: React.FC<GeneralMapViewProps> = ({
       return;
     }
 
-    setGpsMessage('Buscando tu ubicación GPS...');
     setGpsActive(true);
+    startGpsTracking();
 
-    const onSuccess = (pos: GeolocationPosition, centerMap: boolean) => {
-      const coords: LatLngTuple = [pos.coords.latitude, pos.coords.longitude];
-      setUserGps(coords);
+    if (userGps && mapRef.current) {
       setGpsMessage('');
-      if (centerMap && mapRef.current) {
-        mapRef.current.setView(coords, 16);
-      }
-    };
-
-    const onError = (err: GeolocationPositionError) => {
-      setGpsActive(false);
-      if (err.code === err.PERMISSION_DENIED) {
-        setGpsMessage(
-          'Permiso de ubicación denegado. Activa el GPS y permite la ubicación en tu navegador.'
-        );
-      } else {
-        setGpsMessage(
-          'No se pudo obtener tu señal GPS. Verifica que la ubicación del teléfono esté activada.'
-        );
-      }
-    };
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => onSuccess(pos, true),
-      onError,
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-
-    if (gpsWatchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      mapRef.current.setView(userGps, 16);
+    } else {
+      setGpsMessage('Buscando tu ubicación GPS...');
     }
-    gpsWatchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => onSuccess(pos, false),
-      () => {},
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
-    );
   };
 
   const selectedColor = selectedTerritory

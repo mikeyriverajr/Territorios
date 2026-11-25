@@ -30,6 +30,12 @@ import {
 import { getGoogleMapsNavigationUrl } from '../services/notificationHelper';
 import { HelpCenterModal } from './HelpCenterModal';
 import { TerriMapLogo } from './TerriMapLogo';
+import { useLiveGps } from '../hooks/useLiveGps';
+import {
+  GpsLayerHandle,
+  removeGpsMarkerFromMap,
+  syncGpsMarkerOnMap,
+} from '../services/gpsMarker';
 
 interface PublisherLightViewProps {
   slot?: ScheduleSlot | null;
@@ -123,14 +129,58 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
-  const [userGps, setUserGps] = useState<LatLngTuple | null>(null);
-  const [userHeading, setUserHeading] = useState<number | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
-  const hasAutoZoomedRef = useRef<boolean>(false);
+  const gpsLayerRef = useRef<GpsLayerHandle | null>(null);
+  const blocksRef = useRef(blocks);
+  blocksRef.current = blocks;
+  const activeTerritoryRef = useRef(activeTerritory);
+  activeTerritoryRef.current = activeTerritory;
+  const assignedTerritoriesRef = useRef(assignedTerritories);
+  assignedTerritoriesRef.current = assignedTerritories;
+
+  const {
+    coords: userGps,
+    heading: userHeading,
+    accuracy: userAccuracy,
+    startTracking: startGpsTracking,
+    setManualCoords: setUserGpsManual,
+  } = useLiveGps({
+    autoStart: true,
+    onFirstFix: (coords) => {
+      if (!mapRef.current) return;
+      const currentTerrId = activeTerritoryRef.current?.id || '';
+      let matchedBlock = findBlockForCoordinates(
+        blocksRef.current,
+        currentTerrId,
+        coords
+      );
+
+      if (!matchedBlock) {
+        for (const t of assignedTerritoriesRef.current) {
+          if (t.id === currentTerrId) continue;
+          const b = findBlockForCoordinates(blocksRef.current, t.id, coords);
+          if (b) {
+            matchedBlock = b;
+            setActiveTerritoryId(t.id);
+            break;
+          }
+        }
+      }
+
+      if (matchedBlock && matchedBlock.polygon.length >= 3) {
+        mapRef.current.fitBounds(L.latLngBounds(matchedBlock.polygon), {
+          padding: [45, 45],
+          maxZoom: 17,
+        });
+      } else {
+        mapRef.current.setView(coords, 17);
+      }
+    },
+  });
 
   const selectedPoint = useMemo(
     () => territoryPoints.find((p) => p.id === selectedPointId) || null,
@@ -197,6 +247,7 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     layerGroupRef.current = group;
 
     return () => {
+      removeGpsMarkerFromMap(map, gpsLayerRef);
       map.remove();
       mapRef.current = null;
     };
@@ -234,90 +285,6 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
     const bounds = L.latLngBounds(activeTerritory.polygon);
     mapRef.current.fitBounds(bounds, { padding: [36, 36], maxZoom: 16 });
   }, [activeTerritory?.id]);
-
-  // ACTIVACIÓN AUTOMÁTICA DEL GPS AL ENTRAR Y SEGUIMIENTO CONTINUO
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
-
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const coords: LatLngTuple = [pos.coords.latitude, pos.coords.longitude];
-        setUserGps(coords);
-
-        if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
-          setUserHeading(pos.coords.heading);
-        }
-
-        // Auto-zoom a la manzana donde está el publicador al recibir señal GPS
-        if (!hasAutoZoomedRef.current && mapRef.current) {
-          const currentTerrId = activeTerritory?.id || '';
-          let matchedBlock = findBlockForCoordinates(blocks, currentTerrId, coords);
-
-          // Si no está en el territorio activo, buscar en los otros territorios asignados a la salida
-          if (!matchedBlock) {
-            for (const t of assignedTerritories) {
-              if (t.id === currentTerrId) continue;
-              const b = findBlockForCoordinates(blocks, t.id, coords);
-              if (b) {
-                matchedBlock = b;
-                setActiveTerritoryId(t.id);
-                break;
-              }
-            }
-          }
-
-          if (matchedBlock && matchedBlock.polygon.length >= 3) {
-            hasAutoZoomedRef.current = true;
-            mapRef.current.fitBounds(L.latLngBounds(matchedBlock.polygon), {
-              padding: [45, 45],
-              maxZoom: 17,
-            });
-          } else {
-            hasAutoZoomedRef.current = true;
-            mapRef.current.setView(coords, 17);
-          }
-        }
-      },
-      (err) => {
-        console.warn('GPS no disponible o esperando señal:', err);
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 4000,
-        timeout: 12000,
-      }
-    );
-
-    return () => {
-      navigator.geolocation.clearWatch(watchId);
-    };
-  }, [activeTerritory?.id, assignedTerritories, blocks]);
-
-  // SEGUIMIENTO DE ORIENTACIÓN / BRÚJULA PARA APUNTAR EL HAZ DE DIRECCIÓN
-  useEffect(() => {
-    const handleOrientation = (e: DeviceOrientationEvent) => {
-      // iOS Safari proporciona webkitCompassHeading (0-360 respecto al Norte)
-      if ((e as unknown as { webkitCompassHeading?: number }).webkitCompassHeading !== undefined) {
-        const heading = (e as unknown as { webkitCompassHeading: number }).webkitCompassHeading;
-        if (heading !== null && !isNaN(heading)) {
-          setUserHeading(heading);
-        }
-      } else if (e.alpha !== null && !isNaN(e.alpha)) {
-        // Android / W3C: alpha es rotación en eje Z
-        setUserHeading(360 - e.alpha);
-      }
-    };
-
-    const eventName =
-      'deviceorientationabsolute' in window
-        ? 'deviceorientationabsolute'
-        : 'deviceorientation';
-
-    window.addEventListener(eventName, handleOrientation as EventListener);
-    return () => {
-      window.removeEventListener(eventName, handleOrientation as EventListener);
-    };
-  }, []);
 
   // PRIORIDAD #1: Tocar cualquier parte del mapa abre inmediatamente el registro de "No en casa"
   useEffect(() => {
@@ -412,45 +379,25 @@ export const PublisherLightView: React.FC<PublisherLightViewProps> = ({
       });
     });
 
-    // MARCADOR AZUL ESTILO GOOGLE MAPS CON HAZ DE DIRECCIÓN ROTATIVO
-    if (userGps) {
-      const beamHtml =
-        userHeading !== null
-          ? `<div style="position:absolute;top:0;left:0;width:64px;height:64px;transform:rotate(${Math.round(
-              userHeading
-            )}deg);transform-origin:32px 32px;pointer-events:none;transition:transform 0.2s ease-out;">
-              <svg width="64" height="64" viewBox="0 0 64 64">
-                <defs>
-                  <radialGradient id="userBeamGrad" cx="50%" cy="100%" r="100%">
-                    <stop offset="0%" stop-color="#2563eb" stop-opacity="0.6"/>
-                    <stop offset="65%" stop-color="#3b82f6" stop-opacity="0.2"/>
-                    <stop offset="100%" stop-color="#60a5fa" stop-opacity="0"/>
-                  </radialGradient>
-                </defs>
-                <path d="M 32 32 L 14 2 A 35 35 0 0 1 50 2 Z" fill="url(#userBeamGrad)" />
-              </svg>
-            </div>`
-          : '';
+  }, [activeTerritory, territoryBlocks, territoryPoints]);
 
-      const gpsIcon = L.divIcon({
-        className: 'custom-google-maps-gps',
-        html: `<div style="position:relative;width:64px;height:64px;pointer-events:none;">
-          ${beamHtml}
-          <div style="position:absolute;top:20px;left:20px;width:24px;height:24px;border-radius:9999px;background:rgba(37,99,235,0.25);animation:ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-          <div style="position:absolute;top:24px;left:24px;width:16px;height:16px;border-radius:9999px;background:#2563eb;border:2.5px solid #ffffff;box-shadow:0 1px 5px rgba(0,0,0,0.45);"></div>
-        </div>`,
-        iconSize: [64, 64],
-        iconAnchor: [32, 32],
-      });
-      L.marker(userGps, { icon: gpsIcon, zIndexOffset: 1000 }).addTo(group);
-    }
-  }, [activeTerritory, territoryBlocks, territoryPoints, userGps, userHeading]);
+  // Marcador azul GPS en vivo con haz de dirección (sin redibujar los polígonos)
+  useEffect(() => {
+    syncGpsMarkerOnMap(
+      mapRef.current,
+      gpsLayerRef,
+      userGps,
+      userHeading,
+      userAccuracy
+    );
+  }, [userGps, userHeading, userAccuracy]);
 
   const handleUseMyCurrentGps = () => {
     if (!activeTerritory) return;
+    startGpsTracking();
 
     const centerOnCoords = (coords: LatLngTuple) => {
-      setUserGps(coords);
+      setUserGpsManual(coords);
       mapRef.current?.setView(coords, 17);
       openDraftAtCoordinates(coords);
     };
